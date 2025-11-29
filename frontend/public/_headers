@@ -1,0 +1,8 @@
+# Cloudflare Pages Headers Configuration
+# Prevent caching of version.json to ensure fresh version checks
+
+/version.json
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+

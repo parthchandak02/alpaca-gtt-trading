@@ -1,0 +1,207 @@
+"""Background tasks for the application."""
+
+import asyncio
+import logging
+from datetime import datetime
+
+from alpaca_client import AlpacaClient
+from database import get_db
+from gtt_service import GTTService
+from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
+
+# Timeout for Alpaca API calls in background tasks (15 seconds - more lenient than HTTP endpoints)
+ALPACA_API_TIMEOUT = 15.0
+
+# Global Alpaca client for checking market status
+_alpaca_client: AlpacaClient | None = None
+
+# Track previous market status to detect close transition
+_previous_market_open: bool | None = None
+_last_summary_date: str | None = None
+
+
+def set_alpaca_client_for_monitoring(client: AlpacaClient):
+    """Set the Alpaca client for market status checks."""
+    global _alpaca_client
+    _alpaca_client = client
+
+
+async def price_monitoring_loop():
+    """Background task for price monitoring and order triggering.
+
+    Uses fixed 60-second polling interval to avoid overloading Alpaca API.
+    This ensures we stay well within rate limits (200 requests/minute).
+    """
+    global _alpaca_client, _previous_market_open, _last_summary_date
+
+    logger.info("=" * 80)
+    logger.info("🚀 GTT PRICE MONITORING SERVICE STARTED")
+    logger.info("=" * 80)
+
+    # Fixed polling interval: 60 seconds (to avoid overloading API)
+    poll_interval = 60
+    logger.info(f"⏰ Price monitoring configured: checking every {poll_interval}s")
+
+    while True:
+        try:
+            await asyncio.sleep(poll_interval)
+
+            # Get database session
+            db = next(get_db())
+            try:
+                service = GTTService(db)
+                logger.info("-" * 80)
+                logger.info("🔍 PRICE MONITORING CYCLE STARTED")
+                logger.info("-" * 80)
+                
+                # Check market status for daily summary
+                current_market_open = False
+                try:
+                    if _alpaca_client:
+                        market_clock = await asyncio.wait_for(
+                            run_in_threadpool(_alpaca_client.get_market_clock),
+                            timeout=2.0,
+                        )
+                        current_market_open = market_clock.get("is_open", False)
+                except Exception:
+                    pass
+                
+                # Detect market close transition and send daily summary
+                today_date = datetime.utcnow().strftime("%Y-%m-%d")
+                if (
+                    _previous_market_open is True
+                    and current_market_open is False
+                    and _last_summary_date != today_date
+                ):
+                    logger.info("📊 Market closed - sending daily failed orders summary")
+                    try:
+                        await asyncio.wait_for(
+                            run_in_threadpool(service.send_daily_failed_orders_summary),
+                            timeout=10.0,
+                        )
+                        _last_summary_date = today_date
+                    except TimeoutError:
+                        logger.error("❌ Timeout sending daily summary")
+                    except Exception as e:
+                        logger.error(f"❌ Error sending daily summary: {e}")
+                
+                # Update previous market status
+                _previous_market_open = current_market_open
+                # Check for corporate actions first (may cancel orders)
+                # Wrap blocking calls with timeout protection
+                try:
+                    await asyncio.wait_for(
+                        run_in_threadpool(service.check_corporate_actions),
+                        timeout=ALPACA_API_TIMEOUT,
+                    )
+                except TimeoutError:
+                    logger.error(
+                        f"❌ Timeout checking corporate actions (exceeded {ALPACA_API_TIMEOUT}s)"
+                    )
+
+                # Then check prices and trigger orders
+                try:
+                    # Get pending orders symbols before calling check_and_trigger_orders
+                    from models import GTTOrder, OrderStatus
+
+                    pending_orders = (
+                        db.query(GTTOrder)
+                        .filter(GTTOrder.status == OrderStatus.PENDING)
+                        .all()
+                    )
+                    symbols_to_monitor = (
+                        list(set([order.symbol for order in pending_orders]))
+                        if pending_orders
+                        else []
+                    )
+
+                    # Subscribe to symbols via WebSocket for real-time updates
+                    if symbols_to_monitor:
+                        try:
+                            from core.alpaca_websocket_client import (
+                                get_alpaca_ws_client,
+                            )
+
+                            ws_client = get_alpaca_ws_client()
+                            await ws_client.subscribe_symbols(symbols_to_monitor)
+                        except Exception as e:
+                            logger.debug(
+                                f"Error subscribing to WebSocket symbols (non-critical): {e}"
+                            )
+
+                    await asyncio.wait_for(
+                        run_in_threadpool(service.check_and_trigger_orders),
+                        timeout=ALPACA_API_TIMEOUT,
+                    )
+
+                    # Broadcast prices to WebSocket clients after price check completes
+                    # Prices are now in cache, so we can read them and broadcast
+                    if symbols_to_monitor:
+                        try:
+                            from core.price_broadcaster import PriceBroadcaster
+
+                            # Get latest prices from cache using centralized service
+                            from core.price_cache_service import PriceCacheService
+
+                            cached_prices = PriceCacheService.get_prices(
+                                symbols_to_monitor
+                            )
+                            # Filter out None values
+                            cached_prices = {
+                                k: v for k, v in cached_prices.items() if v is not None
+                            }
+
+                            if cached_prices:
+                                # Get market status
+                                is_market_open = False
+                                try:
+                                    if _alpaca_client:
+                                        market_clock = await asyncio.wait_for(
+                                            run_in_threadpool(
+                                                _alpaca_client.get_market_clock
+                                            ),
+                                            timeout=2.0,
+                                        )
+                                        is_market_open = market_clock.get(
+                                            "is_open", False
+                                        )
+                                except Exception:
+                                    pass
+
+                                # Broadcast prices to WebSocket clients
+                                await PriceBroadcaster.broadcast_prices(
+                                    cached_prices, is_market_open
+                                )
+                        except Exception as e:
+                            logger.debug(
+                                f"Error broadcasting prices to WebSocket (non-critical): {e}"
+                            )
+
+                except TimeoutError:
+                    logger.error(
+                        f"❌ Timeout checking and triggering orders (exceeded {ALPACA_API_TIMEOUT}s)"
+                    )
+
+                # Finally update order statuses from Alpaca cache (lower frequency sync)
+                # This runs every price check cycle, but cache refresh is rate-limited internally
+                try:
+                    await asyncio.wait_for(
+                        run_in_threadpool(service.update_order_statuses),
+                        timeout=ALPACA_API_TIMEOUT,
+                    )
+                except TimeoutError:
+                    logger.error(
+                        f"❌ Timeout updating order statuses (exceeded {ALPACA_API_TIMEOUT}s)"
+                    )
+
+                logger.info("✅ Price monitoring cycle completed")
+            finally:
+                db.close()
+
+        except asyncio.CancelledError:
+            logger.info("🛑 Price monitoring cancelled - shutting down")
+            break
+        except Exception as e:
+            logger.error(f"❌ Error in price monitoring loop: {e}")
