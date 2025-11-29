@@ -1,0 +1,87 @@
+[tool.ruff]
+# Line length matching Black's default
+line-length = 88
+target-version = "py311"
+
+# Exclude common directories
+exclude = [
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".git",
+    "node_modules",
+    "migrations",
+    "*.pyc",
+    "database",
+    "logs",
+    "cache",
+]
+
+[tool.ruff.lint]
+# Enable comprehensive rule sets
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports, variables, etc.)
+    "I",   # isort (import sorting)
+    "N",   # pep8-naming
+    "UP",  # pyupgrade (modernize code)
+    "B",   # flake8-bugbear (common bugs)
+    "C4",  # flake8-comprehensions (better comprehensions)
+    "SIM", # flake8-simplify (simplify code)
+    "ARG", # flake8-unused-arguments
+    "PIE", # flake8-pie (misc checks)
+    "T20", # flake8-print (print statements)
+    "PT",  # flake8-pytest-style
+    "RET", # flake8-return (return statements)
+    "RUF", # Ruff-specific rules
+]
+
+# Ignore specific rules if needed
+ignore = [
+    "E501",  # Line too long (handled by formatter)
+    "T201",  # Print statements (may be intentional in scripts)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# Allow print statements in scripts
+"scripts/*.py" = ["T201"]
+"**/test_*.py" = ["T201"]
+"**/*test*.py" = ["T201"]
+
+[tool.ruff.format]
+# Use double quotes
+quote-style = "double"
+# Indent with spaces
+indent-style = "space"
+# Respect magic trailing comma
+skip-magic-trailing-comma = false
+# Automatically detect line ending
+line-ending = "auto"
+
+[tool.vulture]
+# Minimum confidence level (60-100)
+# 100 = definitely unused, lower = may have false positives
+min_confidence = 80
+
+# Paths to analyze
+paths = ["backend"]
+
+# Exclude patterns
+exclude = [
+    "*migrations*",
+    "*__pycache__*",
+    "*database*",
+    "*logs*",
+    "*cache*",
+    "*test*.py",
+    "*scripts*",
+]
+
+# Sort by size (largest unused code first)
+sort_by_size = true
+

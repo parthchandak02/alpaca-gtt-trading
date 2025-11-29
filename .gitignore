@@ -1,0 +1,96 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+# Database directory and backups
+backend/database/
+*.db.backup
+*.db.backup.*
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+node_modules/
+dist/
+frontend/dist/
+frontend/node_modules/
+.next/
+frontend/.next/
+
+# PM2
+.pm2/
+ecosystem.config.local.js
+
+# Cloudflare
+.cloudflared/
+.wrangler/
+wrangler.toml.local
+
+# Build artifacts
+*.egg-info/
+build/
+*.egg
+
+*.db.backup
+*.backup
+backend/cache/
+
+# Screenshots and temporary files
+screenshots/
+temp/
+tmp/
+
+# Test files
+**/test_*.py
+**/test-*.py
+backend/test_*.py
+scripts/test*.py
+
+# Version files (auto-generated)
+version.json
+frontend/public/version.json
+backend/version.json
+frontend/out/
+
+# WAHA Docker data
+waha-data/
+
+# AI/IDE/Linter caches
+.cursor/*
+!.cursor/rules/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.git.backup

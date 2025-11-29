@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+---
+
+- Use the `scripts` folder to automate important tasks.
+- Identify and organize scripts into two types:
+  1. **Recurring Usage Scripts**: Automate frequent workflows (e.g., starting backend/frontend, deploying to Cloudflare, resets, batch jobs). Use Bash where possible for speed, but Python where needed.
+  2. **Temporary Testing Scripts**: Automate one-off or debugging steps (e.g., feature checks, API tests, quick data dumps). Clean up after use if no longer needed.  
+- Name scripts clearly by purpose and type, e.g., `run-backend.sh`, `test-gtt-feature.py`, `debug-price-check.sh`.
+- Agents should intelligently pick the type and place new scripts in the correct location.  
+- Prefer Bash for fast tasks; use Python for complex/testing automation.
+- Always document what each script does at the top (brief comment).
+- Focus on keeping scripts modular, simple, and easy to run.

@@ -1,0 +1,13 @@
+# Cloudflare Pages Configuration
+# NOTE: This file is kept for reference but Pages deployment is handled by:
+#   ./scripts/20-deploy-frontend.sh
+#
+# Cloudflare Pages is used instead of Workers for the Next.js frontend.
+# Pages is better suited for static sites and JAMstack applications.
+#
+# If you need to configure Pages-specific settings, use the Cloudflare Dashboard:
+# https://dash.cloudflare.com/?to=/:account/workers-and-pages/pages/alpaca-trading-frontend
+#
+# For Pages deployment, we deploy the .next directory directly:
+#   wrangler pages deploy frontend/.next --project-name=alpaca-trading-frontend
+

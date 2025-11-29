@@ -1,0 +1,367 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* CSS variables are now injected dynamically from theme.ts via layout.tsx */
+/* This ensures theme.ts is the single source of truth for all colors */
+
+* {
+  @apply border-border-primary;
+}
+
+body {
+  @apply text-text-primary;
+  /* Using standardized font from fonts.ts - Inter with system fallbacks */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #000000;
+  background-attachment: fixed;
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Utility classes for numbers and timestamps */
+/* Using standardized fonts from fonts.ts */
+.font-numbers {
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-variant-numeric: tabular-nums; /* Ensures consistent width for numbers */
+}
+
+.font-datetime {
+  font-family: 'Roboto Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 120px;
+  width: 100%;
+  background: 
+    radial-gradient(ellipse 100% 60px at 50% 50%, rgba(255, 235, 59, 0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 80% 40px at 20% 50%, rgba(255, 235, 59, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 40px at 80% 50%, rgba(255, 235, 59, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 30px at 50% 50%, rgba(255, 235, 59, 0.15) 0%, transparent 50%);
+  transform: translateY(-50%);
+  z-index: 0;
+  filter: blur(40px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 80px;
+  width: 100%;
+  background: 
+    radial-gradient(ellipse 100% 40px at 50% 50%, rgba(255, 235, 59, 0.2) 0%, transparent 60%);
+  transform: translateY(-50%);
+  z-index: 0;
+  filter: blur(20px);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Ensure content is above the background effect */
+#__next,
+[data-nextjs-scroll-focus-boundary] {
+  position: relative;
+  z-index: 1;
+}
+
+/* Glassmorphism utilities - Comprehensive system */
+@layer utilities {
+  /* Base glass effect */
+  .glass {
+    background: rgba(26, 26, 28, 0.6);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  
+  /* Glass variants - different intensities */
+  .glass-light {
+    background: rgba(26, 26, 28, 0.4);
+    backdrop-filter: blur(10px) saturate(150%);
+    -webkit-backdrop-filter: blur(10px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .glass-medium {
+    background: rgba(26, 26, 28, 0.6);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  
+  .glass-heavy {
+    background: rgba(26, 26, 28, 0.85);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  
+  /* Specific component glass styles */
+  .glass-card {
+    @apply glass-medium rounded-2xl;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .glass-card:hover {
+    background: rgba(26, 26, 28, 0.75);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+  
+  /* GTT Order Card hover effects - brighter border only */
+  .gtt-card-crypto:hover {
+    border-color: rgba(157, 23, 77, 0.65) !important;
+  }
+  
+  .gtt-card-stock:hover {
+    border-color: rgba(161, 98, 7, 0.65) !important;
+  }
+  
+  .glass-modal {
+    @apply glass-heavy rounded-xl;
+  }
+  
+  .glass-input {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px) saturate(120%);
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+  }
+  
+  .glass-input:focus {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+  }
+  
+  .glass-button {
+    @apply glass-light rounded-lg;
+    transition: all 0.2s ease;
+  }
+  
+  .glass-button:hover {
+    background: rgba(26, 26, 28, 0.7);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
+  }
+  
+  .glass-button:active {
+    transform: translateY(0);
+  }
+  
+  .glass-nav {
+    @apply glass-medium rounded-xl;
+  }
+  
+  .glass-badge {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px) saturate(150%);
+    -webkit-backdrop-filter: blur(8px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  
+  /* Glass with colored tints */
+  .glass-tint-blue {
+    background: rgba(0, 122, 255, 0.1);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(0, 122, 255, 0.2);
+  }
+  
+  .glass-tint-purple {
+    background: rgba(175, 82, 222, 0.1);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(175, 82, 222, 0.2);
+  }
+  
+  .glass-tint-green {
+    background: rgba(52, 199, 89, 0.1);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(52, 199, 89, 0.2);
+  }
+  
+  /* Smooth transitions for all glass elements */
+  .glass,
+  .glass-light,
+  .glass-medium,
+  .glass-heavy,
+  .glass-card,
+  .glass-input,
+  .glass-button {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Market status indicator animations */
+  @keyframes breathe {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.6;
+      transform: scale(1.1);
+    }
+  }
+  
+  @keyframes breathe-glow {
+    0%, 100% {
+      opacity: 0.3;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.6;
+      transform: scale(1.3);
+    }
+  }
+  
+  .market-status-live {
+    animation: breathe 2s ease-in-out infinite;
+  }
+  
+  .market-status-live-glow {
+    animation: breathe-glow 2s ease-in-out infinite;
+  }
+  
+  /* Rotating border animation for Last Price button - clockwise */
+  @property --angle {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+  }
+  
+  @keyframes rotate-border-cw {
+    to {
+      --angle: 360deg;
+    }
+  }
+  
+  .last-price-button {
+    position: relative;
+    background: #0d0d0d;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    z-index: 0;
+    border: none;
+  }
+  
+  .last-price-button::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    padding: 2px;
+    background: conic-gradient(
+      from var(--angle, 0deg),
+      transparent 0deg,
+      transparent 15%,
+      rgba(234, 179, 8, 0.2) 20%,
+      rgba(234, 179, 8, 0.4) 25%,
+      rgba(234, 179, 8, 0.5) 30%,
+      rgba(234, 179, 8, 0.6) 35%,
+      rgba(234, 179, 8, 0.5) 40%,
+      rgba(234, 179, 8, 0.4) 45%,
+      rgba(234, 179, 8, 0.2) 50%,
+      transparent 55%,
+      transparent 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0) border-box;
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: rotate-border-cw 3s linear infinite;
+    pointer-events: none;
+  }
+  
+  /* Grey static border when price matches */
+  .last-price-button[data-price-matches="true"]::before {
+    background: rgba(142, 142, 147, 0.3);
+    animation: none;
+  }
+  
+  .last-price-button::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    background: #0d0d0d;
+    border-radius: calc(0.5rem - 2px);
+    z-index: 1;
+    pointer-events: none;
+  }
+  
+  .last-price-button:hover::before {
+    animation-duration: 1.5s;
+  }
+  
+  .last-price-button[data-price-matches="true"]:hover::before {
+    animation-duration: 3s;
+  }
+  
+  /* Tooltip animations */
+  @keyframes tooltip-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  
+  .animate-tooltip-in {
+    animation: tooltip-in 150ms ease-out forwards;
+  }
+}
+
+/* Fix Chart.js tooltip z-index - tooltips are DOM elements, not canvas */
+/* Chart.js tooltips are appended to the canvas parent container */
+.chartjs-tooltip,
+[class*="chartjs-tooltip"],
+canvas + div {
+  z-index: 9999 !important;
+}
+
+/* Ensure chart container has proper stacking context */
+#chart-container {
+  position: relative;
+  z-index: 1;
+}
+
+/* Target Chart.js tooltip elements more specifically */
+#chart-container canvas + div {
+  z-index: 9999 !important;
+  pointer-events: none;
+}
+

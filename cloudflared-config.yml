@@ -1,0 +1,26 @@
+# Cloudflare Tunnel Configuration
+# Run: cloudflared tunnel --config cloudflared-config.yml run
+# Or: cloudflared tunnel run alpaca-backend
+
+tunnel: 4873e651-d8a4-4ef6-b019-95f74ebcff8e
+credentials-file: /Users/parthchandak/.cloudflared/4873e651-d8a4-4ef6-b019-95f74ebcff8e.json
+
+ingress:
+  # Backend API - only accessible through Cloudflare Tunnel
+  - hostname: api-trading.parthchandak.info
+    service: http://localhost:8000
+    originRequest:
+      # SSE-specific settings - keep idle connections alive
+      keepAliveTimeout: 6h             # Timeout for idle keepalive connections (default: 1m30s)
+      keepAliveConnections: 100        # Max idle keepalive connections (default: 100)
+      tcpKeepAlive: 30s                # TCP keepalive packet interval (default: 30s)
+      noHappyEyeballs: false           # Enable Happy Eyeballs for IPv4/IPv6 fallback
+      disableChunkedEncoding: false    # Keep chunked encoding enabled for SSE
+      # HTTP request timeout settings
+      connectTimeout: 10s              # Connection timeout (default: 10s)
+      tcpTimeout: 30s                  # TCP timeout (default: 30s)
+      httpHostHeader: api-trading.parthchandak.info  # Set Host header
+  
+  # Catch-all rule (must be last)
+  - service: http_status:404
+
