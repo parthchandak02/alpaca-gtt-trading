@@ -24,7 +24,7 @@ import { isCryptoSymbol } from '@/lib/utils';
 
 export function GTTOrdersPage() {
   const { logout } = useAuth();
-  const { marketStatus, getPrice } = useLivePrices();
+  // Removed independent useLivePrices instance to avoid split state
   
   // Order data management
   const {
@@ -36,6 +36,8 @@ export function GTTOrdersPage() {
     silentRefreshOrders,
     setOrders,
     stopPriceUpdates,
+    marketStatus,
+    getPrice,
   } = useGTTOrderData();
 
   // Expand/collapse state
