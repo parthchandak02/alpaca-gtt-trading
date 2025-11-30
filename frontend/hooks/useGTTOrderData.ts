@@ -11,7 +11,7 @@ import type { GTTOrder } from '@/lib/types';
  * Handles orders state, company names, and price updates
  */
 export function useGTTOrderData() {
-  const { startPriceUpdates, stopPriceUpdates } = useLivePrices();
+  const { startPriceUpdates, stopPriceUpdates, getPrice, marketStatus } = useLivePrices();
   const { getCompanyNames } = useCompanyNames();
   
   const [orders, setOrders] = useState<GTTOrder[]>([]);
@@ -105,6 +105,8 @@ export function useGTTOrderData() {
     updateOrdersData,
     stopPriceUpdates,
     setOrders,
+    getPrice,
+    marketStatus,
   };
 }
 
