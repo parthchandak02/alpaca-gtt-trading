@@ -5,6 +5,7 @@ import { pricesApi, marketApi } from '@/services/api';
 import { debug } from '@/lib/debug';
 import { INTERVALS } from '@/lib/constants';
 import { useWebSocketPrices } from './useWebSocketPrices';
+import { useConnectivity } from '@/hooks/useConnectivity';
 
 interface PriceData {
   price: number;
@@ -29,6 +30,7 @@ export function useLivePrices() {
   const symbolsRef = useRef<string[]>([]);
   const intervalMsRef = useRef<number>(INTERVALS.MARKET_OPEN_POLL);
   const marketStatusRef = useRef<MarketStatus>({ is_open: false });
+  const { isBackendReachable } = useConnectivity();
 
   const fetchMarketStatus = useCallback(async (): Promise<MarketStatus> => {
     try {
@@ -47,6 +49,12 @@ export function useLivePrices() {
 
   const fetchPrices = useCallback(async (symbols: string[]) => {
     if (!symbols || symbols.length === 0) return;
+    
+    // Don't fetch if backend is unreachable (useConnectivity will handle recovery)
+    if (!isBackendReachable) {
+      debug.log('[useLivePrices] Backend unreachable, skipping price fetch');
+      return;
+    }
     
     setIsLoading(true);
     try {

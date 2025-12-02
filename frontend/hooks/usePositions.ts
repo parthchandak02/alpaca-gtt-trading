@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { accountApi } from '@/services/api';
 import { debug } from '@/lib/debug';
+import { useConnectivity } from '@/hooks/useConnectivity';
 import type { Position, PriceData } from '@/lib/types';
 
 interface UsePositionsOptions {
@@ -50,6 +51,7 @@ function normalizeSymbolForComparison(symbol: string): string {
  */
 export function usePositions(options: UsePositionsOptions = {}) {
   const { symbols, onPositionUpdate, enabled = true } = options;
+  const { isBackendReachable } = useConnectivity();
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +70,12 @@ export function usePositions(options: UsePositionsOptions = {}) {
 
   const fetchPositions = useCallback(async () => {
     if (!enabled) return;
+    
+    // Skip if backend is unreachable
+    if (!isBackendReachable) {
+      debug.log('[usePositions] Backend unreachable, skipping fetch');
+      return;
+    }
 
     try {
       setIsLoading(true);
@@ -130,7 +138,7 @@ export function usePositions(options: UsePositionsOptions = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [symbols, enabled]);
+  }, [symbols, enabled, isBackendReachable]);
 
   // Update position when price changes (recalculate market_value and P/L)
   const updatePositionWithPrice = useCallback((symbol: string, priceData: PriceData) => {
@@ -167,10 +175,12 @@ export function usePositions(options: UsePositionsOptions = {}) {
     });
   }, []);
 
-  // Initial fetch
+  // Initial fetch and re-fetch when backend becomes reachable
   useEffect(() => {
-    fetchPositions();
-  }, [fetchPositions]);
+    if (isBackendReachable) {
+      fetchPositions();
+    }
+  }, [fetchPositions, isBackendReachable]);
 
   // Get position for a specific symbol (normalizes symbol for lookup)
   const getPosition = useCallback((symbol: string): Position | null => {

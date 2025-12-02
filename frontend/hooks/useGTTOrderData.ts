@@ -1,7 +1,8 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { gttOrdersApi } from '@/services/api';
 import { useLivePrices } from '@/hooks/useLivePrices';
 import { useCompanyNames } from '@/hooks/useCompanyNames';
+import { useConnectivity } from '@/hooks/useConnectivity';
 import { debug } from '@/lib/debug';
 import { toast } from 'sonner';
 import type { GTTOrder } from '@/lib/types';
@@ -13,10 +14,12 @@ import type { GTTOrder } from '@/lib/types';
 export function useGTTOrderData() {
   const { startPriceUpdates, stopPriceUpdates, getPrice, marketStatus } = useLivePrices();
   const { getCompanyNames } = useCompanyNames();
+  const { isBackendReachable } = useConnectivity();
   
   const [orders, setOrders] = useState<GTTOrder[]>([]);
   const [companyNames, setCompanyNames] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const hasInitialLoadRef = useRef(false);
 
   // Extract unique symbols from orders array
   const extractSymbols = useCallback((ordersData: GTTOrder[]): string[] => {
@@ -52,10 +55,15 @@ export function useGTTOrderData() {
   // Fetch orders with loading state and error handling
   const fetchOrders = useCallback(async () => {
     try {
-      setIsLoading(true);
+      // Only set loading if we don't have data yet
+      if (!hasInitialLoadRef.current) {
+        setIsLoading(true);
+      }
+      
       const response = await gttOrdersApi.getAll();
       const ordersData = response.data || [];
       await updateOrdersData(ordersData);
+      hasInitialLoadRef.current = true;
     } catch (error: any) {
       debug.error('Error fetching orders:', error);
       
@@ -86,11 +94,28 @@ export function useGTTOrderData() {
         errorDetails = 'Backend is temporarily unavailable. Retrying automatically...';
       }
       
-      toast.error(`${errorMessage}. ${errorDetails}`, { duration: 8000 });
+      // Only show toast if we haven't loaded data successfully yet, or if it's a user-initiated refresh
+      // This prevents spamming toasts when background connection is flaky
+      if (!hasInitialLoadRef.current) {
+        toast.error(`${errorMessage}. ${errorDetails}`, { duration: 8000 });
+      } else {
+        debug.log('[GTTOrderData] Silent fetch failed:', errorDetails);
+      }
     } finally {
       setIsLoading(false);
     }
   }, [updateOrdersData]);
+
+  // Auto-refresh when backend becomes reachable again
+  useEffect(() => {
+    if (isBackendReachable && hasInitialLoadRef.current) {
+      debug.log('[GTTOrderData] Backend reachable - refreshing data');
+      silentRefreshOrders();
+    } else if (isBackendReachable && !hasInitialLoadRef.current) {
+      debug.log('[GTTOrderData] Backend reachable - initial fetch');
+      fetchOrders();
+    }
+  }, [isBackendReachable, silentRefreshOrders, fetchOrders]);
 
   // Extract symbols for use in other hooks
   const orderSymbols = useMemo(() => extractSymbols(orders), [orders, extractSymbols]);

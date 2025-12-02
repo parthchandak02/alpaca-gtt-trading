@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { accountApi } from '@/services/api';
+import { useConnectivity } from '@/hooks/useConnectivity';
 import { GlassCard } from '@/components/glass';
 import { Button } from '@/components/ui/button';
 import { RefreshCcw, Circle, Clock, LogOut } from 'lucide-react';
@@ -40,10 +41,21 @@ export function AccountSummary({ marketIsOpen = false, onRefreshAccount, onLogou
     all_time: null,
   });
   const [isLoadingPL, setIsLoadingPL] = useState(false);
+  const { isBackendReachable } = useConnectivity();
+  const hasInitialLoadRef = useRef(false);
 
-  const fetchAccountData = useCallback(async () => {
+  const fetchAccountData = useCallback(async (isAutoRefresh = false) => {
+    // Skip if backend is known to be unreachable
+    if (!isBackendReachable) {
+      debug.log('[AccountSummary] Backend unreachable, skipping account fetch');
+      return;
+    }
+
     try {
-      setIsAccountLoading(true);
+      if (!isAutoRefresh) {
+        setIsAccountLoading(true);
+      }
+      
       const [accountRes, positionsRes] = await Promise.all([
         accountApi.getAccount(),
         accountApi.getPositions(),
@@ -51,6 +63,9 @@ export function AccountSummary({ marketIsOpen = false, onRefreshAccount, onLogou
 
       const accountData = accountRes.data;
       const positions = positionsRes.data || [];
+      
+      // Mark as successfully loaded
+      hasInitialLoadRef.current = true;
 
       // Use long_market_value directly from API (authoritative source)
       const longMarketValue = accountData.long_market_value ?? 0;
@@ -118,15 +133,29 @@ export function AccountSummary({ marketIsOpen = false, onRefreshAccount, onLogou
       }
     } catch (error: any) {
       debug.error('Error fetching account data:', error);
-      toast.error('Failed to refresh account data', {
-        description: error.response?.data?.detail || error.message || 'Please try again',
-      });
+      
+      // Only show toast if:
+      // 1. We haven't loaded data yet (user needs to know why)
+      // 2. It's NOT a connectivity/timeout error (which are handled by auto-retry)
+      // 3. It wasn't an auto-refresh (silence background errors)
+      const isNetworkError = error.message === 'Network Error' || error.code === 'ECONNABORTED' || (error as any).isCircuitBreakerOpen;
+      
+      if (!hasInitialLoadRef.current || (!isAutoRefresh && !isNetworkError)) {
+        toast.error('Failed to refresh account data', {
+          description: error.response?.data?.detail || error.message || 'Please try again',
+        });
+      } else {
+        debug.log('[AccountSummary] Suppressed account fetch error toast');
+      }
     } finally {
       setIsAccountLoading(false);
     }
-  }, [onRefreshAccount]);
+  }, [onRefreshAccount, isBackendReachable]);
 
   const fetchPortfolioPL = useCallback(async () => {
+    // Skip if backend is unreachable
+    if (!isBackendReachable) return;
+
     try {
       setIsLoadingPL(true);
       const periods = ['today', 'weekly', 'monthly', 'yearly', 'all_time'];
@@ -174,31 +203,40 @@ export function AccountSummary({ marketIsOpen = false, onRefreshAccount, onLogou
   };
 
   useEffect(() => {
-    // Fetch initial data
-    fetchAccountData();
-    
-    // Fetch P/L data after a short delay to avoid overwhelming the API
-    const plTimeout = setTimeout(() => {
-      fetchPortfolioPL();
-    }, 1000);
-    
+    // Only fetch if backend is reachable
+    if (isBackendReachable) {
+      fetchAccountData();
+      
+      // Fetch P/L data after a short delay to avoid overwhelming the API
+      const plTimeout = setTimeout(() => {
+        fetchPortfolioPL();
+      }, 1000);
+      
+      return () => clearTimeout(plTimeout);
+    }
+  }, [isBackendReachable, fetchAccountData, fetchPortfolioPL]); // Re-run when backend becomes reachable
+
+  useEffect(() => {
     // Auto-refresh account every 30 seconds
     const accountInterval = setInterval(() => {
-      fetchAccountData();
+      if (isBackendReachable) {
+        fetchAccountData(true); // Pass true for isAutoRefresh
+      }
     }, 30000);
     
     // Auto-refresh P/L every 60 seconds (less frequent)
     const plInterval = setInterval(() => {
-      debug.log('[AccountSummary] Auto-refreshing portfolio P/L data...');
-      fetchPortfolioPL();
+      if (isBackendReachable) {
+        debug.log('[AccountSummary] Auto-refreshing portfolio P/L data...');
+        fetchPortfolioPL();
+      }
     }, 60000);
     
     return () => {
-      clearTimeout(plTimeout);
       clearInterval(accountInterval);
       clearInterval(plInterval);
     };
-  }, [fetchAccountData, fetchPortfolioPL]);
+  }, [isBackendReachable, fetchAccountData, fetchPortfolioPL]);
 
   if (!account) {
     return (
@@ -331,8 +369,8 @@ export function AccountSummary({ marketIsOpen = false, onRefreshAccount, onLogou
           <Button
             variant="ghost"
             size="sm"
-            onClick={fetchAccountData}
-            disabled={isAccountLoading}
+            onClick={() => fetchAccountData(false)}
+            disabled={isAccountLoading || !isBackendReachable}
             className="h-7 px-2 gap-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover"
             title="Refresh Account"
           >

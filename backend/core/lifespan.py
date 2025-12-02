@@ -43,16 +43,15 @@ async def lifespan(app: FastAPI):
 
     set_alpaca_client_for_monitoring(alpaca_client)
 
-    # Refresh assets cache on startup
+    # Refresh assets cache on startup (in background to avoid blocking)
     try:
         from asset_cache import refresh_assets_cache
 
-        logger.info("Refreshing assets cache...")
-        refresh_assets_cache()
-        logger.info("Assets cache refreshed successfully")
+        logger.info("Scheduling assets cache refresh in background...")
+        # Run in background thread/task to allow fast startup
+        asyncio.create_task(asyncio.to_thread(refresh_assets_cache))
     except Exception as e:
-        logger.warning(f"Failed to refresh assets cache on startup: {e}")
-        logger.info("Will use existing cache or fetch on-demand")
+        logger.warning(f"Failed to schedule assets cache refresh: {e}")
 
     # Start Alpaca WebSocket client for real-time prices and order updates
     alpaca_ws_client = get_alpaca_ws_client()
