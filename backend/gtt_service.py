@@ -1261,9 +1261,12 @@ class GTTService:
 
             # Count unique errors across all symbols
             total_attempts = len(failed_activities)
-            unique_errors = sum(
-                len(errors) for errors in failed_by_symbol.values()
-            )
+            # Use a set comprehension to count globally unique error keys
+            unique_errors = len({
+                key 
+                for symbol_errors in failed_by_symbol.values() 
+                for key in symbol_errors.keys()
+            })
 
             # Format summary message - more concise and actionable
             message = "📊 Daily Summary - Failed Orders\n"
