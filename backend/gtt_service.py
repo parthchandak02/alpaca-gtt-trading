@@ -148,6 +148,46 @@ def validate_and_prepare_order(
                     }
                 )
 
+    # MINIMUM ORDER VALUE VALIDATION
+    # Alpaca requires minimum $1 notional value for all orders (crypto and stocks)
+    MIN_ORDER_VALUE = 1.0  # USD
+    current_price = order_data.initial_trigger_price
+    current_qty = order_data.initial_quantity
+    orders_below_minimum = []
+
+    for i in range(order_data.iterations):
+        limit_price = current_price * order_data.decrement_price_multiplier
+        limit_price = round(limit_price, 2)
+        
+        # Use fractional qty or rounded based on fractionable status
+        actual_qty = current_qty if fractionable else max(1, round(current_qty))
+        order_value = actual_qty * limit_price
+
+        if order_value < MIN_ORDER_VALUE:
+            min_qty_needed = MIN_ORDER_VALUE / limit_price if limit_price > 0 else 0
+            orders_below_minimum.append({
+                "level": i + 1,
+                "quantity": actual_qty,
+                "price": limit_price,
+                "value": round(order_value, 4),
+                "min_qty_needed": round(min_qty_needed, 4),
+            })
+
+        # Update for next iteration
+        current_price = limit_price
+        current_qty = current_qty * order_data.increment_qty_multiplier
+
+    if orders_below_minimum:
+        result["warnings"].append({
+            "type": "minimum_value",
+            "symbol": symbol_upper,
+            "message": f"{len(orders_below_minimum)} order(s) will be below Alpaca's $1 minimum and will fail. "
+                       f"Increase initial quantity or price.",
+            "orders_below_minimum": orders_below_minimum,
+        })
+        # This is a warning, not a blocking error - user can still proceed
+        # The orders will simply fail at trigger time with a clear message
+
     return result
 
 
@@ -741,6 +781,27 @@ class GTTService:
                                 self.db.commit()
                                 continue
 
+                            # PRE-VALIDATION: Alpaca requires minimum $1 notional value for all orders
+                            # (crypto and stocks). Check this BEFORE calling the API to avoid repeated failures.
+                            order_value = order_qty * detail.limit_price
+                            MIN_ORDER_VALUE = 1.0  # Alpaca's minimum notional value in USD
+                            if order_value < MIN_ORDER_VALUE:
+                                logger.warning(
+                                    f"      ❌ Order value ${order_value:.4f} < ${MIN_ORDER_VALUE} minimum - SKIPPING"
+                                )
+                                self._log_activity(
+                                    gtt_order_id=gtt_order.id,
+                                    activity_type=ActivityType.ORDER_FAILED,
+                                    symbol=symbol,
+                                    description=f"Order value ${order_value:.4f} below $1 minimum. Increase quantity or price.",
+                                    quantity=detail.quantity,
+                                    price=detail.limit_price,
+                                    notes=f"Qty: {order_qty}, Price: ${detail.limit_price:.4f}, Value: ${order_value:.4f}. "
+                                          f"Min qty needed: {(MIN_ORDER_VALUE / detail.limit_price):.4f}",
+                                )
+                                self.db.commit()
+                                continue
+
                             logger.info(
                                 f"      📤 Placing LIMIT order: "
                                 f"BUY {order_qty} {symbol} @ ${detail.limit_price:.2f} ({detail.time_in_force})"
@@ -1157,6 +1218,8 @@ class GTTService:
     def send_daily_failed_orders_summary(self) -> bool:
         """Send a daily summary of failed orders at market close.
         
+        Groups failures by error type and provides actionable fixes.
+        
         Returns:
             True if summary was sent successfully, False otherwise
         """
@@ -1183,41 +1246,107 @@ class GTTService:
                 logger.debug("No failed orders today, skipping daily summary")
                 return False
 
-            # Group by symbol for cleaner summary
-            failed_by_symbol = {}
+            # Group by symbol, then by error type (deduplicate repeated errors)
+            failed_by_symbol: dict[str, dict[str, list]] = {}
             for activity in failed_activities:
                 symbol = activity.symbol
+                # Extract error type from description
+                error_key = self._extract_error_key(activity.description)
+                
                 if symbol not in failed_by_symbol:
-                    failed_by_symbol[symbol] = []
-                failed_by_symbol[symbol].append(activity)
+                    failed_by_symbol[symbol] = {}
+                if error_key not in failed_by_symbol[symbol]:
+                    failed_by_symbol[symbol][error_key] = []
+                failed_by_symbol[symbol][error_key].append(activity)
 
-            # Format summary message
+            # Count unique errors across all symbols
+            total_attempts = len(failed_activities)
+            unique_errors = sum(
+                len(errors) for errors in failed_by_symbol.values()
+            )
+
+            # Format summary message - more concise and actionable
             message = "📊 Daily Summary - Failed Orders\n"
             message += f"Date: {datetime.utcnow().strftime('%Y-%m-%d')}\n"
-            message += f"Total Failed Orders: {len(failed_activities)}\n\n"
+            message += f"Attempts: {total_attempts} | Unique Issues: {unique_errors}\n\n"
 
-            for symbol, activities in failed_by_symbol.items():
-                message += f"❌ {symbol}: {len(activities)} failed order(s)\n"
-                # Show details for first few failures per symbol
-                for activity in activities[:3]:  # Limit to 3 per symbol
-                    message += f"   • {activity.description}\n"
-                    if activity.price:
-                        message += f"     Price: ${activity.price:.2f}\n"
-                if len(activities) > 3:
-                    message += f"   ... and {len(activities) - 3} more\n"
+            for symbol, errors_by_type in failed_by_symbol.items():
+                total_symbol_failures = sum(len(errs) for errs in errors_by_type.values())
+                message += f"❌ {symbol}: {total_symbol_failures} attempt(s)\n"
+                
+                for error_key, activities in errors_by_type.items():
+                    # Get human-readable error and fix suggestion
+                    error_msg, fix_suggestion = self._parse_error_message(error_key)
+                    message += f"   • {error_msg} ({len(activities)}x)\n"
+                    if fix_suggestion:
+                        message += f"     💡 {fix_suggestion}\n"
+                
                 message += "\n"
 
-            message += "All failed orders have been logged in the system."
+            message += "Check GTT Orders page to fix or delete problematic orders."
 
             # Send message
             success = whatsapp.send_message(message=message)
             if success:
-                logger.info(f"✅ Daily failed orders summary sent: {len(failed_activities)} failed orders")
+                logger.info(f"✅ Daily failed orders summary sent: {total_attempts} attempts, {unique_errors} unique errors")
             return success
 
         except Exception as e:
             logger.error(f"Error sending daily failed orders summary: {e}", exc_info=True)
             return False
+
+    def _extract_error_key(self, description: str) -> str:
+        """Extract a normalized error key from description for grouping."""
+        import json
+        import re
+        
+        # Try to extract Alpaca error code
+        code_match = re.search(r'"code":\s*(\d+)', description)
+        if code_match:
+            return f"code:{code_match.group(1)}"
+        
+        # Try to extract key error phrases
+        if "below $1 minimum" in description.lower() or "minimal amount of order" in description.lower():
+            return "min_value"
+        if "insufficient" in description.lower():
+            return "insufficient_funds"
+        if "quantity" in description.lower() and "0.01" in description:
+            return "min_qty"
+        
+        # Default: use first 50 chars of description
+        return description[:50] if len(description) > 50 else description
+
+    def _parse_error_message(self, error_key: str) -> tuple[str, str]:
+        """Convert error key to human-readable message and fix suggestion.
+        
+        Returns:
+            Tuple of (error_message, fix_suggestion)
+        """
+        # Known Alpaca error codes
+        error_map = {
+            "code:40310000": (
+                "Order below $1 minimum",
+                "Increase quantity so order value ≥ $1"
+            ),
+            "min_value": (
+                "Order below $1 minimum", 
+                "Increase quantity so order value ≥ $1"
+            ),
+            "min_qty": (
+                "Quantity below 0.01 minimum",
+                "Increase quantity to at least 0.01"
+            ),
+            "insufficient_funds": (
+                "Insufficient buying power",
+                "Add funds or reduce order size"
+            ),
+        }
+        
+        if error_key in error_map:
+            return error_map[error_key]
+        
+        # For unknown errors, return as-is with no suggestion
+        return (error_key, "")
 
     def _log_activity(
         self,
