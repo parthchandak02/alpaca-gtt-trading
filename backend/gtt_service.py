@@ -26,6 +26,45 @@ logger = logging.getLogger(__name__)
 TOLERANCE = 1e-6
 
 
+def _detect_currency_from_symbol(symbol: str) -> str:
+    """Detect currency from symbol.
+    
+    Currently all orders are USD-denominated:
+    - Crypto pairs: BTC/USD, ETH/USD -> USD
+    - Stocks: AAPL, TSLA -> USD
+    
+    Future: Can be extended to detect EUR, GBP, JPY, etc. from symbol or asset info.
+    
+    Args:
+        symbol: Symbol string (e.g., "BTC/USD", "AAPL")
+    
+    Returns:
+        Currency code (e.g., "USD", "EUR", "GBP")
+    """
+    symbol_upper = symbol.upper()
+    
+    # Check if it's a crypto pair with currency (e.g., BTC/USD, ETH/EUR)
+    if "/" in symbol_upper:
+        parts = symbol_upper.split("/")
+        if len(parts) == 2:
+            quote_currency = parts[1]
+            # Common quote currencies
+            if quote_currency in ["USD", "USDT", "USDC"]:
+                return "USD"
+            elif quote_currency in ["EUR", "EURT"]:
+                return "EUR"
+            elif quote_currency == "GBP":
+                return "GBP"
+            elif quote_currency == "JPY":
+                return "JPY"
+            # Default to USD for unknown quote currencies
+            return "USD"
+    
+    # Stocks are USD-denominated (for now)
+    # Future: Could check asset info from Alpaca API for currency
+    return "USD"
+
+
 def validate_and_prepare_order(
     db: Session,
     order_data: GTTOrderCreate,
@@ -148,9 +187,64 @@ def validate_and_prepare_order(
                     }
                 )
 
-    # MINIMUM ORDER VALUE VALIDATION
-    # Alpaca requires minimum $1 notional value for all orders (crypto and stocks)
-    MIN_ORDER_VALUE = 1.0  # USD
+    # MINIMUM QUANTITY VALIDATION (BLOCKING)
+    # Alpaca requires minimum 0.01 quantity for fractional orders (stocks and crypto)
+    # This applies to ALL fractional orders, including BTC/USD
+    # See: backend/constants.py::MIN_FRACTIONAL_QUANTITY
+    from constants import MIN_FRACTIONAL_QUANTITY
+    
+    if fractionable:
+        # Check minimum quantity for fractional assets (crypto and fractional stocks)
+        quantities_below_minimum = []
+        current_qty = order_data.initial_quantity
+        
+        # Check initial quantity
+        if current_qty < MIN_FRACTIONAL_QUANTITY:
+            quantities_below_minimum.append({
+                "level": 0,
+                "quantity": current_qty,
+                "min_quantity": MIN_FRACTIONAL_QUANTITY,
+            })
+        
+        # Check calculated quantities through the ladder
+        for i in range(order_data.iterations):
+            if current_qty < MIN_FRACTIONAL_QUANTITY:
+                quantities_below_minimum.append({
+                    "level": i + 1,
+                    "quantity": current_qty,
+                    "min_quantity": MIN_FRACTIONAL_QUANTITY,
+                })
+            current_qty *= order_data.increment_qty_multiplier
+        
+        if quantities_below_minimum:
+            # BLOCKING: Reject orders with quantities below minimum
+            result["valid"] = False
+            result["error"] = (
+                f"{len(quantities_below_minimum)} order level(s) have quantity below minimum "
+                f"({MIN_FRACTIONAL_QUANTITY}). Increase initial quantity."
+            )
+            result["warnings"].append({
+                "type": "minimum_quantity",
+                "symbol": symbol_upper,
+                "min_quantity": MIN_FRACTIONAL_QUANTITY,
+                "message": f"{len(quantities_below_minimum)} order level(s) have quantity below minimum "
+                           f"({MIN_FRACTIONAL_QUANTITY}). Increase initial quantity.",
+                "quantities_below_minimum": quantities_below_minimum,
+                "requires_confirmation": False,  # Blocking error, not a warning
+            })
+
+    # MINIMUM ORDER VALUE VALIDATION (BLOCKING)
+    # Alpaca requires minimum notional value for all orders (crypto and stocks)
+    # Formula: quantity × price ≥ MIN_ORDER_VALUE[currency]
+    # Error code: 40310000
+    # Minimum order value validation - see README.md for details
+    # BLOCKING: Orders below minimum will be rejected at creation time
+    from constants import MIN_ORDER_VALUE, MIN_ORDER_VALUE_DEFAULT
+    
+    # Detect currency from symbol (currently all orders are USD)
+    currency = _detect_currency_from_symbol(symbol_upper)
+    min_order_value = MIN_ORDER_VALUE.get(currency, MIN_ORDER_VALUE_DEFAULT)
+    
     current_price = order_data.initial_trigger_price
     current_qty = order_data.initial_quantity
     orders_below_minimum = []
@@ -163,8 +257,8 @@ def validate_and_prepare_order(
         actual_qty = current_qty if fractionable else max(1, round(current_qty))
         order_value = actual_qty * limit_price
 
-        if order_value < MIN_ORDER_VALUE:
-            min_qty_needed = MIN_ORDER_VALUE / limit_price if limit_price > 0 else 0
+        if order_value < min_order_value:
+            min_qty_needed = min_order_value / limit_price if limit_price > 0 else 0
             orders_below_minimum.append({
                 "level": i + 1,
                 "quantity": actual_qty,
@@ -178,15 +272,23 @@ def validate_and_prepare_order(
         current_qty = current_qty * order_data.increment_qty_multiplier
 
     if orders_below_minimum:
+        # BLOCKING: Reject orders that will fail
+        currency_symbol = "$" if currency == "USD" else currency
+        result["valid"] = False
+        result["error"] = (
+            f"{len(orders_below_minimum)} order(s) will be below Alpaca's minimum order value "
+            f"({currency_symbol}{min_order_value:.2f}). Increase initial quantity or price."
+        )
         result["warnings"].append({
             "type": "minimum_value",
             "symbol": symbol_upper,
-            "message": f"{len(orders_below_minimum)} order(s) will be below Alpaca's $1 minimum and will fail. "
-                       f"Increase initial quantity or price.",
+            "currency": currency,
+            "min_order_value": min_order_value,
+            "message": f"{len(orders_below_minimum)} order(s) will be below Alpaca's minimum order value "
+                       f"({currency_symbol}{min_order_value:.2f}). Increase initial quantity or price.",
             "orders_below_minimum": orders_below_minimum,
+            "requires_confirmation": False,  # Blocking error, not a warning
         })
-        # This is a warning, not a blocking error - user can still proceed
-        # The orders will simply fail at trigger time with a clear message
 
     return result
 
@@ -533,21 +635,39 @@ class GTTService:
             raise
 
     def _is_safe_price_drop(
-        self, symbol: str, trigger_price: float, current_price: float, threshold: float = 0.20
+        self, symbol: str, trigger_price: float, current_price: float, threshold: float = None
     ) -> tuple[bool, str]:
         """Check if price drop is safe (within threshold).
+
+        Uses different thresholds for crypto vs stocks:
+        - Crypto: 50% threshold (crypto markets are volatile, legitimate drops can be large)
+        - Stocks: 20% threshold (protects against symbol mismatches or bad data)
+
+        Args:
+            symbol: Symbol string (e.g., "BTC/USD", "AAPL")
+            trigger_price: Original trigger price
+            current_price: Current market price
+            threshold: Optional override threshold (if None, auto-detects based on symbol type)
 
         Returns:
             (is_safe, reason)
         """
+        from alpaca_client import is_crypto_symbol
+        
+        # Auto-detect threshold based on symbol type if not provided
+        if threshold is None:
+            is_crypto = is_crypto_symbol(symbol)
+            threshold = 0.50 if is_crypto else 0.20  # 50% for crypto, 20% for stocks
+        
         # Calculate percentage drop
         drop_pct = (trigger_price - current_price) / trigger_price
 
         if drop_pct > threshold:
+            asset_type = "crypto" if is_crypto_symbol(symbol) else "stock"
             reason = (
                 f"SAFETY HALT: Price ${current_price:.2f} is {drop_pct*100:.1f}% below trigger "
-                f"${trigger_price:.2f}. This usually indicates a symbol mismatch "
-                f"(e.g. Stock vs Crypto) or bad data. Skipping order to protect funds."
+                f"${trigger_price:.2f} (>{threshold*100:.0f}% threshold for {asset_type}). "
+                f"This usually indicates a symbol mismatch or bad data. Skipping order to protect funds."
             )
             return False, reason
 
@@ -681,12 +801,16 @@ class GTTService:
                         if not is_safe:
                             logger.error(f"      🛑 {safety_reason}")
                             # Log failure
+                            # Determine threshold used for logging
+                            from alpaca_client import is_crypto_symbol
+                            threshold_used = 50 if is_crypto_symbol(symbol) else 20
+                            
                             self._log_activity(
                                 gtt_order_id=gtt_order.id,
                                 activity_type=ActivityType.ORDER_FAILED,
                                 symbol=symbol,
                                 description=safety_reason,
-                                notes=f"Trigger: ${detail.trigger_price}, Current: ${current_price}, Threshold: 20%",
+                                notes=f"Trigger: ${detail.trigger_price}, Current: ${current_price}, Threshold: {threshold_used}%",
                             )
                             # Continue to next detail (skip this one)
                             continue
@@ -766,6 +890,7 @@ class GTTService:
                             )
 
                             # Ensure minimum quantity of 0.01 for fractional orders
+                            # Alpaca requires minimum 0.01 quantity for fractional orders
                             if order_qty < 0.01:
                                 logger.warning(
                                     f"      ❌ Order detail {detail.id} has quantity {order_qty} < 0.01, skipping"
@@ -781,23 +906,30 @@ class GTTService:
                                 self.db.commit()
                                 continue
 
-                            # PRE-VALIDATION: Alpaca requires minimum $1 notional value for all orders
+                            # PRE-VALIDATION: Alpaca requires minimum notional value for all orders
                             # (crypto and stocks). Check this BEFORE calling the API to avoid repeated failures.
+                            # Formula: quantity × price ≥ MIN_ORDER_VALUE[currency]
+                            # Error code: 40310000
+                            from constants import MIN_ORDER_VALUE, MIN_ORDER_VALUE_DEFAULT
+                            
+                            currency = _detect_currency_from_symbol(symbol)
+                            min_order_value = MIN_ORDER_VALUE.get(currency, MIN_ORDER_VALUE_DEFAULT)
+                            
                             order_value = order_qty * detail.limit_price
-                            MIN_ORDER_VALUE = 1.0  # Alpaca's minimum notional value in USD
-                            if order_value < MIN_ORDER_VALUE:
+                            if order_value < min_order_value:
+                                currency_symbol = "$" if currency == "USD" else currency
                                 logger.warning(
-                                    f"      ❌ Order value ${order_value:.4f} < ${MIN_ORDER_VALUE} minimum - SKIPPING"
+                                    f"      ❌ Order value {currency_symbol}{order_value:.4f} < {currency_symbol}{min_order_value} minimum - SKIPPING"
                                 )
                                 self._log_activity(
                                     gtt_order_id=gtt_order.id,
                                     activity_type=ActivityType.ORDER_FAILED,
                                     symbol=symbol,
-                                    description=f"Order value ${order_value:.4f} below $1 minimum. Increase quantity or price.",
+                                    description=f"Order value {currency_symbol}{order_value:.4f} below {currency_symbol}{min_order_value} minimum. Increase quantity or price.",
                                     quantity=detail.quantity,
                                     price=detail.limit_price,
-                                    notes=f"Qty: {order_qty}, Price: ${detail.limit_price:.4f}, Value: ${order_value:.4f}. "
-                                          f"Min qty needed: {(MIN_ORDER_VALUE / detail.limit_price):.4f}",
+                                    notes=f"Qty: {order_qty}, Price: {currency_symbol}{detail.limit_price:.4f}, Value: {currency_symbol}{order_value:.4f}. "
+                                          f"Min qty needed: {(min_order_value / detail.limit_price):.4f}",
                                 )
                                 self.db.commit()
                                 continue
@@ -817,7 +949,13 @@ class GTTService:
                             )
 
                             if alpaca_order:
-                                detail.alpaca_order_id = alpaca_order["id"]
+                                # Update directly in DB to avoid race conditions with other threads/workers
+                                # that might be updating the parent order status simultaneously.
+                                from models import GTTOrderDetail
+                                self.db.query(GTTOrderDetail).filter(GTTOrderDetail.id == detail.id).update(
+                                    {"alpaca_order_id": alpaca_order["id"]}
+                                )
+                                detail.alpaca_order_id = alpaca_order["id"] # Update local object too
                                 
                                 # CRITICAL: Commit transaction immediately to link Alpaca order to DB
                                 # This prevents duplicate order placement if the loop continues or cache update fails
@@ -974,6 +1112,17 @@ class GTTService:
 
         Also checks if assets are still valid (exist and are tradable) to catch
         delistings or symbol changes not yet reflected in corporate actions.
+
+        WHY ORDERS EXPIRE:
+        - Stock splits change share price/quantity, making existing orders invalid
+        - Mergers may change or delist symbols
+        - Spinoffs affect share structure
+        - Delistings make assets non-tradable
+        
+        NOTE: Once a limit order is placed with Alpaca, it still needs to be filled by the market.
+        GTT orders don't automatically execute - they place limit orders when triggered.
+        
+        Orders expire when corporate actions (splits, mergers, delistings) invalidate them.
         """
         # Get all pending GTT orders
         pending_orders = (
@@ -1197,6 +1346,9 @@ class GTTService:
         if cancelled_count > 0:
             # Update GTT order status
             gtt_order.status = OrderStatus.EXPIRED
+            
+            # Explicitly add to session to ensure update is tracked
+            self.db.add(gtt_order)
 
             # Log activity with format matching user's example
             date_str = action_date if action_date else "N/A"

@@ -302,9 +302,10 @@ export function AddGTTOrderModal({ open, onClose, onSuccess }: AddGTTOrderModalP
     if (!symbol.trim()) errors.push('Symbol is required');
     const qty = parseFloat(initialQuantity);
     const isCrypto = isCryptoSymbol(symbol);
-    const minQty = isCrypto ? 0.0001 : (isFractionable === false ? 1 : 0.01);
+    // Alpaca requires minimum 0.01 quantity for ALL fractional orders (crypto and fractional stocks)
+    const minQty = isFractionable === false ? 1 : 0.01;
     if (!initialQuantity || qty <= 0 || qty < minQty) {
-      errors.push(`Initial quantity must be >= ${minQty}${isCrypto ? ' (crypto)' : ''}`);
+      errors.push(`Initial quantity must be >= ${minQty}${isCrypto ? ' (crypto minimum: 0.01)' : ''}`);
     }
     if (!initialPrice || parseFloat(initialPrice) <= 0) errors.push('Initial price must be > 0');
     if (!incrementQtyMultiplier || parseFloat(incrementQtyMultiplier) <= 0) errors.push('Increment multiplier must be > 0');
@@ -313,6 +314,40 @@ export function AddGTTOrderModal({ open, onClose, onSuccess }: AddGTTOrderModalP
     }
     if (!iterations || parseInt(iterations) <= 0 || parseInt(iterations) > 20) {
       errors.push('Iterations must be between 1 and 20');
+    }
+    
+    // Validate minimum quantity (0.01) and minimum order value ($1.00 USD) for all ladder levels
+    const MIN_FRACTIONAL_QUANTITY = 0.01; // Alpaca's minimum quantity for fractional orders
+    const MIN_ORDER_VALUE = 1.0; // USD - Alpaca's minimum order value
+    const ladder = calculateLadder();
+    
+    // Check minimum quantity for fractional assets
+    if (isFractionable !== false) {
+      const quantitiesBelowMinimum = ladder.filter(level => level.quantity < MIN_FRACTIONAL_QUANTITY);
+      if (quantitiesBelowMinimum.length > 0) {
+        const levels = quantitiesBelowMinimum.map(l => l.level).join(', ');
+        errors.push(
+          `Order level(s) ${levels} have quantity below ${MIN_FRACTIONAL_QUANTITY} minimum. ` +
+          `Increase initial quantity. (Level ${quantitiesBelowMinimum[0].level}: ` +
+          `${quantitiesBelowMinimum[0].quantity})`
+        );
+      }
+    }
+    
+    // Check minimum order value
+    const ordersBelowMinimum = ladder.filter(level => {
+      const actualQty = isFractionable === false ? Math.round(level.quantity) : level.quantity;
+      const orderValue = actualQty * level.price;
+      return orderValue < MIN_ORDER_VALUE;
+    });
+    
+    if (ordersBelowMinimum.length > 0) {
+      const levels = ordersBelowMinimum.map(l => l.level).join(', ');
+      errors.push(
+        `Order level(s) ${levels} will be below $${MIN_ORDER_VALUE} minimum. ` +
+        `Increase initial quantity or price. (Level ${ordersBelowMinimum[0].level}: ` +
+        `$${(ordersBelowMinimum[0].quantity * ordersBelowMinimum[0].price).toFixed(4)})`
+      );
     }
     
     return errors;
@@ -557,8 +592,8 @@ export function AddGTTOrderModal({ open, onClose, onSuccess }: AddGTTOrderModalP
                 type="number"
                 value={initialQuantity}
                 onChange={(e) => setInitialQuantity(e.target.value)}
-                min={isCryptoSymbol(symbol) ? "0.0001" : (isFractionable === false ? "1" : "0.01")}
-                step={isCryptoSymbol(symbol) ? "0.0001" : (isFractionable === false ? "1" : "0.01")}
+                min={isFractionable === false ? "1" : "0.01"}
+                step={isFractionable === false ? "1" : "0.01"}
                 className="font-numbers"
                 required
               />

@@ -1,12 +1,16 @@
 """Configuration settings for the application."""
 
+import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
 # Force reload .env file on every restart (even if already loaded)
 # This ensures PM2 restarts pick up new environment variables
 # Note: PM2 doesn't auto-reload .env changes - use 'pm2 reload --update-env' or restart
-load_dotenv("../.env", override=True)
+# Robustly find .env file relative to this file
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(env_path, override=True)
 
 
 class Settings(BaseSettings):
@@ -67,7 +71,7 @@ class Settings(BaseSettings):
     whatsapp_phone_number: str = ""  # Your phone number (digits only, no + or spaces)
 
     class Config:
-        env_file = "../.env"
+        env_file = str(Path(__file__).resolve().parent.parent / ".env")
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"  # Ignore extra fields in .env that aren't in the model
@@ -127,9 +131,11 @@ class SettingsWrapper:
         Uses separate databases for paper and live trading to prevent data mixing.
         This is a critical safety feature - paper and live trading data must never mix.
         """
-        if self.use_paper_trading:
-            return "sqlite:///./database/alpaca_orders_paper.db"
-        return "sqlite:///./database/alpaca_orders_live.db"
+        # Use absolute path for database to ensure it works regardless of CWD
+        base_dir = Path(__file__).resolve().parent
+        db_name = "alpaca_orders_paper.db" if self.use_paper_trading else "alpaca_orders_live.db"
+        db_path = base_dir / "database" / db_name
+        return f"sqlite:///{db_path}"
 
 
 settings = SettingsWrapper(_settings, _cors_origins_list)
