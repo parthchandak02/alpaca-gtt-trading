@@ -34,7 +34,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 second timeout - allow more time for mobile/cold starts
+  timeout: 10000, // 10 second timeout - reduced from 30s for better UX
 });
 
 // Configure retry logic with exponential backoff
