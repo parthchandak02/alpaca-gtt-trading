@@ -1057,6 +1057,112 @@ class GTTService:
         # Get all GTT orders and check their details
         gtt_orders = self.db.query(GTTOrder).all()
 
+        # First, detect and clear expired Alpaca orders so they can be re-triggered
+        # This fixes the bug where expired DAY orders prevent re-triggering
+        expired_orders_cleared = 0
+        gtt_orders_to_reactivate = set()  # Track GTT orders that need status update
+        
+        for gtt_order in gtt_orders:
+            for detail in gtt_order.order_details:
+                # Only check non-manually-linked orders (manually linked should stay linked)
+                if detail.alpaca_order_id and not detail.is_manually_linked:
+                    cache_data = get_alpaca_order_data(
+                        self.db,
+                        self.alpaca,
+                        detail.alpaca_order_id,
+                        force_refresh=False,
+                    )
+                    
+                    if cache_data:
+                        status = cache_data.get("status", "").upper()
+                        expired_at = cache_data.get("expired_at")
+                        
+                        # Check if order is expired (status EXPIRED or has expired_at timestamp)
+                        is_expired = (
+                            status == "EXPIRED" 
+                            or expired_at is not None
+                        )
+                        
+                        if is_expired:
+                            # Clear the alpaca_order_id so this detail can be re-triggered
+                            old_order_id = detail.alpaca_order_id
+                            detail.alpaca_order_id = None
+                            expired_orders_cleared += 1
+                            
+                            # If GTT order is EXPIRED, mark it for reactivation (will check below)
+                            if gtt_order.status == OrderStatus.EXPIRED:
+                                gtt_orders_to_reactivate.add(gtt_order.id)
+                            
+                            logger.info(
+                                f"Cleared expired Alpaca order {old_order_id} from GTT order detail {detail.id} "
+                                f"(GTT order {gtt_order.id}, {gtt_order.symbol}). "
+                                f"Detail can now be re-triggered."
+                            )
+                            
+                            # Log activity
+                            self._log_activity(
+                                gtt_order_id=gtt_order.id,
+                                activity_type=ActivityType.ORDER_FAILED,
+                                symbol=gtt_order.symbol,
+                                description=f"Alpaca order expired (DAY order). Clearing link to allow re-trigger.",
+                                notes=f"Expired Alpaca order: {old_order_id}, Detail: {detail.id}, Trigger: ${detail.trigger_price:.2f}",
+                            )
+
+        # Reactivate GTT orders that were EXPIRED but now have pending details after clearing expired Alpaca orders
+        # This ensures check_and_trigger_orders() will process them
+        reactivated_count = 0
+        for gtt_order_id in gtt_orders_to_reactivate:
+            gtt_order = next((o for o in gtt_orders if o.id == gtt_order_id), None)
+            if not gtt_order:
+                continue
+                
+            # Check if order has pending details (no alpaca_order_id and not manually linked)
+            has_pending_details = any(
+                not detail.is_manually_linked and not detail.alpaca_order_id
+                for detail in gtt_order.order_details
+            )
+            
+            # Also check if order is not fully filled
+            filled_count = 0
+            for detail in gtt_order.order_details:
+                if detail.alpaca_order_id:
+                    cache_data = get_alpaca_order_data(
+                        self.db, self.alpaca, detail.alpaca_order_id, force_refresh=False
+                    )
+                    if cache_data and cache_data.get("status") == "FILLED":
+                        filled_count += 1
+            
+            is_fully_filled = filled_count == gtt_order.total_count
+            
+            # Only reactivate if there are pending details and not fully filled
+            if has_pending_details and not is_fully_filled:
+                gtt_order.status = OrderStatus.PENDING
+                gtt_order.locked_buying_power = 0.0  # Will be recalculated by status service
+                reactivated_count += 1
+                
+                logger.info(
+                    f"Reactivated GTT order {gtt_order.id} ({gtt_order.symbol}) from EXPIRED to PENDING "
+                    f"after clearing expired Alpaca orders. Order can now be monitored and re-triggered."
+                )
+                
+                # Log activity
+                self._log_activity(
+                    gtt_order_id=gtt_order.id,
+                    activity_type=ActivityType.GTT_TRIGGER,
+                    symbol=gtt_order.symbol,
+                    description=f"GTT order reactivated after expired DAY order was cleared. Order is now PENDING and will be monitored.",
+                    notes=f"Order was EXPIRED due to expired Alpaca order. After clearing expired order link, order has pending details and can be re-triggered.",
+                )
+
+        if expired_orders_cleared > 0:
+            logger.info(
+                f"Cleared {expired_orders_cleared} expired Alpaca order link(s) - details can now be re-triggered"
+            )
+        if reactivated_count > 0:
+            logger.info(
+                f"Reactivated {reactivated_count} GTT order(s) from EXPIRED to PENDING - orders can now be monitored"
+            )
+
         for gtt_order in gtt_orders:
             previous_filled_count = gtt_order.filled_count
 
