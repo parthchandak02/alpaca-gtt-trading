@@ -42,6 +42,7 @@ Scripts are organized by category with numbered prefixes (first digit = category
 - `21-setup-tunnel.sh` - Setup Cloudflare tunnel configuration
 - `22-start-tunnel.sh` - Start Cloudflare tunnel
 - `23-check-config.sh` - Verify Cloudflare configuration
+- `24-deploy.sh` - Combined deployment (Git push + Cloudflare Pages)
 
 **3x - Maintenance**
 - `30-cleanup-restart.sh` - Cleanup and restart services
@@ -49,8 +50,11 @@ Scripts are organized by category with numbered prefixes (first digit = category
 - `32-fix-code-quality.sh` - Auto-fix code quality issues
 - `33-check-code-quality.sh` - Check code quality
 - `34-generate-version.sh` - Generate version file
-- `11-run-backend.sh` - Start backend (works for both dev and PM2)
-- `12-run-frontend.sh` - Start frontend (works for both dev and PM2)
+- `35-complete-setup.sh` - Complete setup checklist for production
+- `36-reset-paper-db.sh` - Reset paper trading database
+- `37-verify-gtt-readiness.sh` - Verify GTT system readiness for market open
+- `38-reactivate-expired-orders.py` - Safely reactivate incorrectly expired GTT orders
+- `39-check-expired-orders.py` - Check for expired GTT orders in database
 
 **4x - Testing & Analysis**
 - `40-test-e2e-flow.py` - End-to-end flow test
@@ -61,6 +65,9 @@ Scripts are organized by category with numbered prefixes (first digit = category
 - `45-test-portfolio-history.py` - Portfolio history test
 - `46-check-missed-triggers.py` - Check for missed triggers using historical data
 - `47-analyze-gtt-orders.py` - Comprehensive order analysis (safety checks, balance issues)
+- `48-check-backend-health.py` - Check backend API health
+- `49-run-tests.sh` - Run automated test suite
+- `55-trigger-daily-summary.py` - Manually trigger daily failed orders summary
 
 **5x - WhatsApp Integration**
 - `50-setup-waha.sh` - Setup WAHA Docker container
@@ -150,6 +157,9 @@ pm2 restart alpaca-backend              # Restart backend
 - Stocks: 20% drop threshold (protects against symbol mismatches)
 
 **Order Expiration**: Orders expire due to corporate actions (splits, mergers, delistings)
+- When an order expires, **all remaining ladder levels are cancelled** (entire GTT order is marked EXPIRED)
+- Expired orders are displayed in the frontend with red "EXPIRED" badges
+- Remaining pending order details will **not** be processed after expiration
 
 ## Features
 

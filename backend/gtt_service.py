@@ -1137,14 +1137,22 @@ class GTTService:
 
         # First, check if assets are still valid (exist and tradable)
         # This catches delistings and symbol changes
+        # IMPORTANT: Only expire if we successfully get asset info AND tradable is explicitly False
+        # If API call fails (returns None), skip expiration to avoid false positives
         for gtt_order in pending_orders:
             symbol = gtt_order.symbol.upper()
             try:
                 # Rate limit before fetching asset info
                 rate_limit_alpaca_call_sync()
                 asset_info = self.alpaca.get_asset_info(symbol)
-                if not asset_info or not asset_info.get("tradable", True):
-                    # Asset doesn't exist or is not tradable - cancel orders
+                
+                # Only expire if we successfully got asset info AND tradable is explicitly False
+                # If asset_info is None (API failure), skip to avoid false positives
+                if asset_info is not None and asset_info.get("tradable") is False:
+                    # Asset exists but is explicitly marked as not tradable - cancel orders
+                    logger.info(
+                        f"Asset {symbol} is marked as not tradable - expiring GTT order {gtt_order.id}"
+                    )
                     self._cancel_gtt_order_due_to_corporate_action(
                         gtt_order=gtt_order,
                         reason="Asset no longer tradable or delisted",
@@ -1152,10 +1160,17 @@ class GTTService:
                         action_subtype="",
                     )
                     continue
+                elif asset_info is None:
+                    # API call failed - log but don't expire (could be temporary network issue)
+                    logger.warning(
+                        f"Could not get asset info for {symbol} (API returned None) - skipping expiration check to avoid false positives"
+                    )
             except Exception as e:
-                # If we can't get asset info, it might be delisted or symbol changed
-                # Log but don't cancel immediately - let corporate actions API handle it
-                logger.debug(f"Could not verify asset {symbol}: {e}")
+                # If we can't get asset info due to exception, log but don't cancel
+                # This prevents false positives from temporary API failures
+                logger.warning(
+                    f"Exception getting asset info for {symbol}: {e} - skipping expiration check to avoid false positives"
+                )
 
         # Check for corporate actions in the last 7 days and upcoming 7 days
         # This covers recent actions that might have affected orders
