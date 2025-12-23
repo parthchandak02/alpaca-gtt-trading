@@ -52,12 +52,15 @@ Scripts are organized by category with numbered prefixes (first digit = category
 - `11-run-backend.sh` - Start backend (works for both dev and PM2)
 - `12-run-frontend.sh` - Start frontend (works for both dev and PM2)
 
-**4x - Testing**
+**4x - Testing & Analysis**
 - `40-test-e2e-flow.py` - End-to-end flow test
 - `41-test-price-cache.py` - Price cache service test
 - `42-test-gtt-order-status.py` - GTT order status test
 - `43-test-alpaca-websocket.py` - Alpaca WebSocket test
 - `44-test-verify-gtt-triggers.py` - Verify GTT trigger logic (diagnostic tool)
+- `45-test-portfolio-history.py` - Portfolio history test
+- `46-check-missed-triggers.py` - Check for missed triggers using historical data
+- `47-analyze-gtt-orders.py` - Comprehensive order analysis (safety checks, balance issues)
 
 **5x - WhatsApp Integration**
 - `50-setup-waha.sh` - Setup WAHA Docker container
@@ -131,6 +134,22 @@ pm2 restart alpaca-backend              # Restart backend
 
 ### 2. API Rate Limiting
 - Use **Debounce** hook (`useDebounce`) for search inputs (wait 500ms after typing stops)
+
+## Order Requirements
+
+**Minimum Order Value**: $1.00 USD (all orders must meet this)
+- Formula: `quantity × price ≥ $1.00`
+- Orders below minimum are rejected at creation
+
+**Minimum Quantity**: 0.01 (for fractional orders)
+- Applies to crypto and fractional stocks
+- Non-fractionable assets require whole numbers
+
+**Safety Check**: Prevents orders when price drops too dramatically
+- Crypto: 50% drop threshold (allows volatile market drops)
+- Stocks: 20% drop threshold (protects against symbol mismatches)
+
+**Order Expiration**: Orders expire due to corporate actions (splits, mergers, delistings)
 
 ## Features
 

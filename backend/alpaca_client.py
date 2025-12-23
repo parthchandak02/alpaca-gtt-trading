@@ -389,6 +389,18 @@ class AlpacaClient:
                 )
             else:
                 # Use stock API for stock symbols
+                # Prefer latest trade for real-time monitoring
+                try:
+                    trade_request = StockLatestTradeRequest(symbol_or_symbols=[symbol])
+                    latest_trade = self.data_client.get_stock_latest_trade(trade_request)
+                    if latest_trade.get(symbol):
+                        price = float(latest_trade[symbol].price)
+                        logger.debug(f"Got stock price for {symbol} from latest trade: {price}")
+                        return price
+                except Exception as e:
+                    logger.debug(f"Could not get latest trade for {symbol}, falling back to bars: {e}")
+
+                # Fallback to bars if trade not available
                 request = StockBarsRequest(
                     symbol_or_symbols=[symbol],
                     timeframe=TimeFrame.Day,
@@ -403,7 +415,7 @@ class AlpacaClient:
                     if bars_dict[symbol] and len(bars_dict[symbol]) > 0:
                         # Return the close price of the most recent bar
                         price = float(bars_dict[symbol][-1].close)
-                        logger.debug(f"Got stock price for {symbol}: {price}")
+                        logger.debug(f"Got stock price for {symbol} from bars: {price}")
                         return price
 
             # Fallback: try direct access for backward compatibility (shouldn't be needed)
@@ -592,81 +604,52 @@ class AlpacaClient:
 
             # Fetch stock prices
             if stock_symbols:
+                # Try getting latest trades first (real-time)
                 try:
-                    stock_request = StockBarsRequest(
-                        symbol_or_symbols=stock_symbols,
-                        timeframe=TimeFrame.Day,
-                        start=datetime.utcnow() - timedelta(days=1),
-                        limit=1,
-                    )
-                    stock_bars = self.data_client.get_stock_bars(stock_request)
+                    stock_trade_request = StockLatestTradeRequest(symbol_or_symbols=stock_symbols)
+                    stock_trades = self.data_client.get_stock_latest_trade(stock_trade_request)
+                    for normalized_symbol in stock_symbols:
+                        original_symbol = symbol_mapping.get(normalized_symbol, normalized_symbol)
+                        if stock_trades.get(normalized_symbol):
+                            result[original_symbol] = float(stock_trades[normalized_symbol].price)
+                            logger.debug(f"Got stock price for {normalized_symbol} from latest trade: {result[original_symbol]}")
+                        else:
+                            result[original_symbol] = None
+                except Exception as e:
+                    logger.warning(f"Error getting stock latest trades: {e}")
+                    for normalized_symbol in stock_symbols:
+                        original_symbol = symbol_mapping.get(normalized_symbol, normalized_symbol)
+                        result[original_symbol] = None
 
-                    # Stock BarSet also has data attribute
-                    if hasattr(stock_bars, "data") and stock_bars.data:
-                        bars_dict = stock_bars.data
-                        for normalized_symbol in stock_symbols:
-                            original_symbol = symbol_mapping.get(
-                                normalized_symbol, normalized_symbol
-                            )
-                            if (
-                                normalized_symbol in bars_dict
-                                and bars_dict[normalized_symbol]
-                                and len(bars_dict[normalized_symbol]) > 0
-                            ):
-                                result[original_symbol] = float(
-                                    bars_dict[normalized_symbol][-1].close
-                                )
-                            else:
-                                result[original_symbol] = None
-                    else:
-                        # Fallback: try direct access (for backward compatibility)
-                        for normalized_symbol in stock_symbols:
-                            original_symbol = symbol_mapping.get(
-                                normalized_symbol, normalized_symbol
-                            )
-                            try:
+                # For any missing prices, fallback to bars
+                missing_stocks = [s for s in stock_symbols if result.get(symbol_mapping.get(s, s)) is None]
+                
+                if missing_stocks:
+                    try:
+                        stock_request = StockBarsRequest(
+                            symbol_or_symbols=missing_stocks,
+                            timeframe=TimeFrame.Day,
+                            start=datetime.utcnow() - timedelta(days=1),
+                            limit=1,
+                        )
+                        stock_bars = self.data_client.get_stock_bars(stock_request)
+
+                        # Stock BarSet also has data attribute
+                        if hasattr(stock_bars, "data") and stock_bars.data:
+                            bars_dict = stock_bars.data
+                            for normalized_symbol in missing_stocks:
+                                original_symbol = symbol_mapping.get(normalized_symbol, normalized_symbol)
                                 if (
-                                    normalized_symbol in stock_bars
-                                    and stock_bars[normalized_symbol]
-                                    and len(stock_bars[normalized_symbol]) > 0
+                                    normalized_symbol in bars_dict
+                                    and bars_dict[normalized_symbol]
+                                    and len(bars_dict[normalized_symbol]) > 0
                                 ):
                                     result[original_symbol] = float(
-                                        stock_bars[normalized_symbol][-1].close
+                                        bars_dict[normalized_symbol][-1].close
                                     )
-                                else:
-                                    result[original_symbol] = None
-                            except (KeyError, TypeError):
-                                result[original_symbol] = None
-
-                    # Fallback to latest trades for stock symbols without bars
-                    missing_stocks = [s for s in stock_symbols if result.get(s) is None]
-                    if missing_stocks:
-                        try:
-                            stock_trade_request = StockLatestTradeRequest(
-                                symbol_or_symbols=missing_stocks
-                            )
-                            stock_trades = self.data_client.get_stock_latest_trade(
-                                stock_trade_request
-                            )
-                            for normalized_symbol in missing_stocks:
-                                original_symbol = symbol_mapping.get(
-                                    normalized_symbol, normalized_symbol
-                                )
-                                if stock_trades.get(normalized_symbol):
-                                    result[original_symbol] = float(
-                                        stock_trades[normalized_symbol].price
-                                    )
-                        except Exception as e:
-                            logger.warning(
-                                f"Error getting fallback stock trade prices: {e}"
-                            )
-                except Exception as e:
-                    logger.error(f"Error getting stock prices: {e}")
-                    for normalized_symbol in stock_symbols:
-                        original_symbol = symbol_mapping.get(
-                            normalized_symbol, normalized_symbol
-                        )
-                        result[original_symbol] = None
+                                    logger.debug(f"Got stock price for {normalized_symbol} from bars (fallback): {result[original_symbol]}")
+                    except Exception as e:
+                        logger.error(f"Error getting stock bars fallback: {e}")
 
             return result
         except Exception as e:

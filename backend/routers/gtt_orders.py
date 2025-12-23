@@ -244,6 +244,21 @@ async def create_gtt_order(
 
         # If validation failed (has warnings or duplicates) and user hasn't confirmed
         if not validation["valid"]:
+            # Check if there are blocking errors (minimum_value, minimum_quantity) that cannot be confirmed
+            blocking_warnings = [
+                w for w in validation.get("warnings", [])
+                if w.get("type") in ["minimum_value", "minimum_quantity"] and not w.get("requires_confirmation", True)
+            ]
+            
+            # If there are blocking errors, reject immediately
+            if blocking_warnings:
+                error_response = {
+                    "detail": validation["error"] or "Order validation failed"
+                }
+                if validation["warnings"]:
+                    error_response["warnings"] = validation["warnings"]
+                raise HTTPException(status_code=400, detail=error_response)
+            
             # If user hasn't confirmed either warnings or duplicates, return them
             if (validation["warnings"] and not confirm_rounding) or (
                 validation["duplicate"] and not confirm_duplicates
@@ -261,7 +276,7 @@ async def create_gtt_order(
                 raise HTTPException(status_code=400, detail=error_response)
 
             # If we reach here, user has confirmed warnings/duplicates
-            # Override validation result to allow creation
+            # Override validation result to allow creation (only for non-blocking warnings)
             if (validation["duplicate"] and confirm_duplicates) or (
                 validation["warnings"] and confirm_rounding
             ):

@@ -4,7 +4,22 @@
 FLOATING_POINT_TOLERANCE = 1e-6
 
 # Minimum quantity for fractional orders
+# Alpaca requires minimum 0.01 quantity for fractional orders (stocks and crypto)
 MIN_FRACTIONAL_QUANTITY = 0.01
+
+# Minimum order value (notional value) by currency
+# Alpaca requires minimum notional value for ALL orders (stocks and crypto)
+# Formula: quantity × price ≥ MIN_ORDER_VALUE[currency]
+# Error code: 40310000
+# Currently all orders are USD-denominated, but this structure supports future currencies
+MIN_ORDER_VALUE = {
+    "USD": 1.0,  # $1.00 USD minimum
+    # Future currencies can be added here:
+    # "EUR": 1.0,  # €1.00 EUR minimum (if supported)
+    # "GBP": 1.0,  # £1.00 GBP minimum (if supported)
+}
+# Default minimum order value (for backward compatibility)
+MIN_ORDER_VALUE_DEFAULT = 1.0  # USD
 
 # Price tolerance for grouping trigger prices in charts (1 cent)
 PRICE_GROUPING_TOLERANCE = 0.01
