@@ -97,6 +97,7 @@ export function PriceChart({ order, orderDetails }: PriceChartProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
   const chartRef = useRef<ChartJS<'line'>>(null);
+  const chartCacheRef = useRef<Map<string, ChartDataWithBars>>(new Map());
 
   // Dynamic date formatter based on timeframe
   const formatDateLabel = useCallback((timestamp: string, currentTimeframe: Timeframe): string => {
@@ -219,13 +220,29 @@ export function PriceChart({ order, orderDetails }: PriceChartProps) {
       });
     });
     
-    setChartData({
+    const processedData = {
       labels,
       datasets,
       bars, // Store bars for tooltip
-    });
+    };
+    
+    setChartData(processedData);
+    
+    // Cache the bars data (keyed by symbol and timeframe)
+    // Note: We cache bars, not the full chartData, because orderDetails change
+    const cacheKey = `${order.symbol}-${timeframe}`;
+    chartCacheRef.current.set(cacheKey, processedData);
+    
+    // Limit cache size to prevent memory issues (keep last 10)
+    if (chartCacheRef.current.size > 10) {
+      const firstKey = chartCacheRef.current.keys().next().value;
+      if (firstKey !== undefined) {
+        chartCacheRef.current.delete(firstKey);
+      }
+    }
+    
     debug.groupEnd();
-  }, [orderDetails, timeframe, formatDateLabel]);
+  }, [orderDetails, timeframe, formatDateLabel, order.symbol]);
 
   // Fetch chart data
   useEffect(() => {
@@ -236,6 +253,16 @@ export function PriceChart({ order, orderDetails }: PriceChartProps) {
       try {
         setIsLoading(true);
         const days = TIMEFRAME_DAYS[timeframe];
+        
+        // Check cache first (cache key includes symbol and timeframe)
+        const cacheKey = `${order.symbol}-${timeframe}`;
+        const cachedData = chartCacheRef.current.get(cacheKey);
+        if (cachedData) {
+          debug.log(`Using cached chart data for ${cacheKey}`);
+          setChartData(cachedData);
+          setIsLoading(false);
+          return;
+        }
         
         debug.group(`Fetching chart data for ${order.symbol}`);
         debug.log('Timeframe:', timeframe, 'Days:', days);
@@ -259,7 +286,16 @@ export function PriceChart({ order, orderDetails }: PriceChartProps) {
         
         debug.log('Alpaca timeframe:', alpacaTimeframe, 'Request days:', requestDays);
         
-        const response = await historicalBarsApi.getBars(order.symbol, requestDays, alpacaTimeframe, abortController.signal);
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Chart data fetch timeout')), 8000); // 8s timeout
+        });
+        
+        const response = await Promise.race([
+          historicalBarsApi.getBars(order.symbol, requestDays, alpacaTimeframe, abortController.signal),
+          timeoutPromise,
+        ]) as any;
+        
         const bars = response.data.bars || [];
         
         // Check if component is still mounted before updating state

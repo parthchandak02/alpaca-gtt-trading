@@ -37,11 +37,25 @@ export function useCompanyNames() {
     const names: Record<string, string> = {};
     const uncachedSymbols = symbols.filter(s => !cache[s]);
     
-    // Batch requests to avoid overwhelming backend (max 5 concurrent)
-    const BATCH_SIZE = 5;
+    // Add cached names immediately
+    symbols.forEach(symbol => {
+      if (cache[symbol]) {
+        names[symbol] = cache[symbol];
+      }
+    });
+    
+    // If all symbols are cached, return immediately
+    if (uncachedSymbols.length === 0) {
+      return names;
+    }
+    
+    // Batch requests to avoid overwhelming backend (max 10 concurrent, no delays)
+    const BATCH_SIZE = 10;
+    const promises: Promise<void>[] = [];
+    
     for (let i = 0; i < uncachedSymbols.length; i += BATCH_SIZE) {
       const batch = uncachedSymbols.slice(i, i + BATCH_SIZE);
-      const promises = batch.map(async (symbol) => {
+      const batchPromises = batch.map(async (symbol) => {
         try {
           const response = await assetApi.getInfo(symbol);
           const name = response.data?.name || symbol;
@@ -54,23 +68,14 @@ export function useCompanyNames() {
         }
       });
       
-      await Promise.all(promises);
-      
-      // Small delay between batches to prevent overwhelming backend
-      if (i + BATCH_SIZE < uncachedSymbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+      promises.push(...batchPromises);
     }
     
-    // Update cache state
-    setCache((prev) => ({ ...prev, ...names }));
+    // Execute all batches concurrently (no delays)
+    await Promise.all(promises);
     
-    // Add cached names
-    symbols.forEach(symbol => {
-      if (cache[symbol]) {
-        names[symbol] = cache[symbol];
-      }
-    });
+    // Update cache state once
+    setCache((prev) => ({ ...prev, ...names }));
     
     return names;
   }, [cache]);
