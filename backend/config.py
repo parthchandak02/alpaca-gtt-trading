@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     waha_api_key: str = ""  # WAHA API key (check docker logs for generated key)
     waha_session_name: str = "default"
     whatsapp_phone_number: str = ""  # Your phone number (digits only, no + or spaces)
+    whatsapp_group_id: str = ""  # Group ID for notifications (format: 123456789@g.us)
 
     class Config:
         env_file = str(Path(__file__).resolve().parent.parent / ".env")

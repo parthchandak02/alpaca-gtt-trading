@@ -1,80 +1,81 @@
 # Alpaca GTT Order Tracker
 
-GTT order management with real-time price monitoring and automated order execution.
+GTT (Good-Till-Triggered) order management with real-time price monitoring and automated order execution via Alpaca API.
 
 ## Quick Start
 
 ```bash
-./scripts/10-run-all.sh  # Starts backend (8000) + frontend (3000)
+# Start everything (backend + frontend)
+./scripts/10-run-all.sh
 ```
+
+- Backend: http://localhost:8000
+- Frontend: http://localhost:3000
 
 ## Configuration
 
-Single `.env` file in project root (see `.env.example`).
-
-## Code Quality
-
-Uses **Ruff** (linter) and **Vulture** (dead code detector).
+Create `.env` in project root (see `example.env`):
 
 ```bash
-# Check for issues
-bash scripts/33-check-code-quality.sh
+# Required - Alpaca API
+ALPACA_API_KEY=your_key
+ALPACA_SECRET_KEY=your_secret
+ALPACA_PAPER=true  # false for live trading
 
-# Auto-fix issues (linting + formatting)
-bash scripts/32-fix-code-quality.sh
+# Optional - WhatsApp notifications
+WHATSAPP_ENABLED=false
+WHATSAPP_PHONE_NUMBER=14155551234
+WHATSAPP_GROUP_ID=123456789@g.us  # Optional: send to group instead
+WAHA_API_URL=http://localhost:3001
+WAHA_API_KEY=your_waha_key
 ```
 
-**Tools:**
-- **Ruff**: Finds unused imports, variables, code style issues, common bugs (auto-fixes 983+ issues)
-- **Vulture**: Finds dead/unused code (functions, classes, imports)
+## Features
+
+- **GTT Ladder Orders** - Create cascading buy orders that trigger as price drops
+- **Real-time Prices** - WebSocket price updates with HTTP polling fallback
+- **Automated Execution** - Orders auto-submit when price drops below trigger
+- **Fractional Trading** - Support for crypto and fractional stock quantities
+- **CSV Bulk Upload** - Import multiple orders via CSV templates
+- **Price Charts** - Interactive charts with trigger level visualization
+- **Daily Summaries** - WhatsApp notifications for order fills, failures, and daily reports
+- **Separate Databases** - Paper and live trading use isolated databases
 
 ## Scripts
 
-Scripts are organized by category with numbered prefixes (first digit = category, second digit = script number):
+Numbered by category (1x=Dev, 2x=Deploy, 3x=Maintenance, 4x=Testing, 5x=WhatsApp):
 
-**1x - Development**
-- `10-run-all.sh` - Start backend + frontend together
-- `11-run-backend.sh` - Start backend only
-- `12-run-frontend.sh` - Start frontend only
+**Development (1x)**
+- `10-run-all.sh` - Start backend + frontend
+- `11-run-backend.sh` - Backend only
+- `12-run-frontend.sh` - Frontend only
 
-**2x - Deployment**
-- `20-deploy-frontend.sh` - Deploy frontend to Cloudflare Pages
-- `21-setup-tunnel.sh` - Setup Cloudflare tunnel configuration
-- `22-start-tunnel.sh` - Start Cloudflare tunnel
-- `23-check-config.sh` - Verify Cloudflare configuration
-- `24-deploy.sh` - Combined deployment (Git push + Cloudflare Pages)
+**Deployment (2x)**
+- `20-deploy-frontend.sh` - Deploy to Cloudflare Pages
+- `21-setup-tunnel.sh` - Setup Cloudflare tunnel
+- `22-start-tunnel.sh` - Start tunnel
+- `24-deploy.sh` - Git push + Cloudflare deploy
 
-**3x - Maintenance**
-- `30-cleanup-restart.sh` - Cleanup and restart services
-- `31-fix-db-permissions.sh` - Fix database permissions
-- `32-fix-code-quality.sh` - Auto-fix code quality issues
+**Maintenance (3x)**
+- `30-cleanup-restart.sh` - Full reset
+- `32-fix-code-quality.sh` - Auto-fix linting (Ruff)
 - `33-check-code-quality.sh` - Check code quality
-- `34-generate-version.sh` - Generate version file
-- `35-complete-setup.sh` - Complete setup checklist for production
-- `36-reset-paper-db.sh` - Reset paper trading database
-- `37-verify-gtt-readiness.sh` - Verify GTT system readiness for market open
-- `38-reactivate-expired-orders.py` - Safely reactivate incorrectly expired GTT orders
-- `39-check-expired-orders.py` - Check for expired GTT orders in database
+- `36-reset-paper-db.sh` - Reset paper trading DB
+- `37-verify-gtt-readiness.sh` - Pre-market check
 
-**4x - Testing & Analysis**
-- `40-test-e2e-flow.py` - End-to-end flow test
-- `41-test-price-cache.py` - Price cache service test
-- `42-test-gtt-order-status.py` - GTT order status test
-- `43-test-alpaca-websocket.py` - Alpaca WebSocket test
-- `44-test-verify-gtt-triggers.py` - Verify GTT trigger logic (diagnostic tool)
-- `45-test-portfolio-history.py` - Portfolio history test
-- `46-check-missed-triggers.py` - Check for missed triggers using historical data
-- `47-analyze-gtt-orders.py` - Comprehensive order analysis (safety checks, balance issues)
-- `48-check-backend-health.py` - Check backend API health
-- `49-run-tests.sh` - Run automated test suite
-- `55-trigger-daily-summary.py` - Manually trigger daily failed orders summary
+**Testing (4x)**
+- `40-test-e2e-flow.py` - End-to-end flow
+- `44-test-verify-gtt-triggers.py` - Trigger logic verification
+- `47-analyze-gtt-orders.py` - Order analysis
+- `48-check-backend-health.py` - API health check
+- `49-run-tests.sh` - Test suite
 
-**5x - WhatsApp Integration**
-- `50-setup-waha.sh` - Setup WAHA Docker container
-- `51-setup-waha-session.sh` - Setup WAHA session
-- `52-get-waha-qr.sh` - Get QR code for WhatsApp linking
-- `53-search-waha-groups.py` - Search WhatsApp groups
-- `54-test-whatsapp.py` - WhatsApp notification test
+**WhatsApp (5x)**
+- `50-setup-waha.sh` - Setup WAHA container
+- `51-setup-waha-session.sh` - Setup WhatsApp session
+- `52-get-waha-qr.sh` - Get QR code for linking
+- `54-test-whatsapp.py` - Test notifications
+- `55-trigger-daily-summary.py` - Manual daily summary
 
 ## Production
 
@@ -83,98 +84,82 @@ Scripts are organized by category with numbered prefixes (first digit = category
 pm2 start ecosystem.config.js
 pm2 logs
 
-# Deploy Frontend
+# Deploy frontend
 ./scripts/20-deploy-frontend.sh
-
-# Verify Config
-./scripts/23-check-config.sh
 ```
 
-## WhatsApp Notifications (Optional)
+## WhatsApp Notifications
 
-Get WhatsApp notifications when GTT orders fill, fail, or are cancelled.
+Optional notifications for order fills, failures, and daily summaries.
 
 ```bash
-# 1. Setup WAHA Docker container
+# 1. Start WAHA (shared instance at ~/Documents/waha)
 ./scripts/50-setup-waha.sh
 
-# 2. Add to .env:
-# WHATSAPP_ENABLED=true
-# WHATSAPP_PHONE_NUMBER=14258983101  # Your phone (digits only, no +)
-# WAHA_API_URL=http://localhost:3001
-# WAHA_API_KEY=<get from docker logs waha | grep WAHA_API_KEY>
-# WAHA_SESSION_NAME=default
+# 2. Add to .env (get API key from script output)
+WHATSAPP_ENABLED=true
+WHATSAPP_PHONE_NUMBER=14155551234
+WHATSAPP_GROUP_ID=123456789@g.us  # Optional: group notifications
+WAHA_API_URL=http://localhost:3001
+WAHA_API_KEY=your_key_here
 
-# 3. Open Swagger UI: http://localhost:3001/
-#    - Click "Authorize" (top right)
-#    - Enter API key from step 2
-#    - Create session: POST /api/sessions {"name": "default"}
-#    - Get QR code: GET /api/{session}/auth/qr
-#    - Scan QR code with WhatsApp
+# 3. Setup session (scan QR with WhatsApp)
+./scripts/51-setup-waha-session.sh
 
-# 4. Test it
+# 4. Test
 backend/.venv/bin/python scripts/54-test-whatsapp.py
 
-# Search groups
-backend/.venv/bin/python scripts/53-search-waha-groups.py "USA"
+# Manual daily summary (or use --dry-run to preview)
+backend/.venv/bin/python scripts/55-trigger-daily-summary.py --dry-run
 ```
 
-**Notifications are sent automatically for:**
-- ✅ ORDER_FILLED - When GTT orders are executed
-- ❌ ORDER_FAILED - When orders fail
-- 🚫 ORDER_CANCELLED - When orders are cancelled
-- ⚠️ CORPORATE_ACTION_EXPIRED - When orders expire due to corporate actions
+WAHA is managed at `~/Documents/waha`. Use `./manage.sh start|stop|status` there.
+
+## Order Requirements
+
+| Requirement | Value | Notes |
+|-------------|-------|-------|
+| Min Order Value | $1.00 | quantity x price >= $1 |
+| Min Quantity | 0.01 | Fractional orders |
+| Safety Drop (Crypto) | 50% | Allows volatile drops |
+| Safety Drop (Stocks) | 20% | Protects against bad data |
+
+**Order Expiration**: Corporate actions (splits, mergers) expire all remaining ladder levels.
+
+## Architecture
+
+```
+alpaca-trader/
+├── backend/           # Python + FastAPI + SQLite
+│   ├── core/          # Services (prices, websocket, whatsapp)
+│   ├── routers/       # API endpoints
+│   └── gtt_service.py # GTT order logic
+├── frontend/          # Next.js + React + TypeScript
+│   ├── app/           # Pages (login, gtt)
+│   ├── components/    # UI components
+│   ├── hooks/         # React hooks
+│   └── lib/           # Utilities, types, theme
+└── scripts/           # Automation scripts
+```
+
+**Real-time Updates**:
+- WebSocket for price streaming
+- SSE (Server-Sent Events) for order status updates
+- Heartbeat every 15s (Cloudflare timeout protection)
+
+## Tech Stack
+
+- **Backend**: Python 3.11+ / FastAPI / SQLAlchemy / SQLite
+- **Frontend**: Next.js 15 / React 19 / TypeScript / Tailwind CSS
+- **Real-time**: Alpaca WebSocket / SSE
+- **Deployment**: Cloudflare Pages (frontend) + Tunnel (backend)
+- **Notifications**: WAHA (WhatsApp HTTP API)
 
 ## Troubleshooting
 
 ```bash
-./scripts/30-cleanup-restart.sh        # Full reset
-./scripts/31-fix-db-permissions.sh    # Fix DB permissions
-pm2 restart alpaca-backend              # Restart backend
+./scripts/30-cleanup-restart.sh     # Full reset
+./scripts/31-fix-db-permissions.sh  # Fix DB permissions
+pm2 restart alpaca-backend          # Restart backend
+docker logs waha                    # WAHA logs
 ```
-
-## Critical Architecture Patterns
-
-### 1. Real-Time Connections (SSE) & Cloudflare
-- **Backend:** Send heartbeat every **15 seconds** (Cloudflare closes idle connections after ~100s)
-- **Frontend:** Use `useRef` for callbacks in `useEffect` to prevent infinite reconnection loops
-
-### 2. API Rate Limiting
-- Use **Debounce** hook (`useDebounce`) for search inputs (wait 500ms after typing stops)
-
-## Order Requirements
-
-**Minimum Order Value**: $1.00 USD (all orders must meet this)
-- Formula: `quantity × price ≥ $1.00`
-- Orders below minimum are rejected at creation
-
-**Minimum Quantity**: 0.01 (for fractional orders)
-- Applies to crypto and fractional stocks
-- Non-fractionable assets require whole numbers
-
-**Safety Check**: Prevents orders when price drops too dramatically
-- Crypto: 50% drop threshold (allows volatile market drops)
-- Stocks: 20% drop threshold (protects against symbol mismatches)
-
-**Order Expiration**: Orders expire due to corporate actions (splits, mergers, delistings)
-- When an order expires, **all remaining ladder levels are cancelled** (entire GTT order is marked EXPIRED)
-- Expired orders are displayed in the frontend with red "EXPIRED" badges
-- Remaining pending order details will **not** be processed after expiration
-
-## Features
-
-- GTT order management with ladder orders
-- Real-time price updates via WebSocket with HTTP polling fallback
-- Automated order triggering when prices drop below trigger points
-- CSV bulk upload
-- Interactive price charts with trigger levels
-- Fractional trading validation
-- Separate databases for paper/live trading
-- WhatsApp notifications (optional) - Get notified when orders fill/fail
-
-## Tech Stack
-
-- **Backend**: Python + FastAPI + SQLite
-- **Frontend**: Next.js 16 + React 19 + TypeScript
-- **Real-time**: WebSocket (prices) + SSE (order events)
-- **Deployment**: Cloudflare Pages (frontend) + Cloudflare Tunnel (backend)

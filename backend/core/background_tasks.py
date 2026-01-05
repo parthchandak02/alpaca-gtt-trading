@@ -75,13 +75,18 @@ async def price_monitoring_loop():
                     and current_market_open is False
                     and _last_summary_date != today_date
                 ):
-                    logger.info("📊 Market closed - sending daily failed orders summary")
+                    logger.info("📊 Market closed - sending enhanced daily trading summary")
                     try:
+                        from core.daily_summary_service import send_enhanced_daily_summary
+                        
                         await asyncio.wait_for(
-                            run_in_threadpool(service.send_daily_failed_orders_summary),
-                            timeout=10.0,
+                            run_in_threadpool(
+                                send_enhanced_daily_summary, db, _alpaca_client
+                            ),
+                            timeout=15.0,
                         )
                         _last_summary_date = today_date
+                        logger.info("✅ Daily trading summary sent successfully")
                     except TimeoutError:
                         logger.error("❌ Timeout sending daily summary")
                     except Exception as e:

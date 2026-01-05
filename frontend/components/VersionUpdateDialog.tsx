@@ -13,6 +13,7 @@ import { RefreshCw, X, Info } from 'lucide-react';
 export function VersionUpdateDialog() {
   const {
     showUpdateDialog,
+    currentVersion,
     latestVersion,
     versionInfo,
     refreshPage,
@@ -52,22 +53,26 @@ export function VersionUpdateDialog() {
         </div>
 
         {/* Version Info */}
-        {versionInfo && (
+        {(currentVersion || latestVersion) && (
           <div className="space-y-2 p-3 rounded-lg bg-bg-tertiary/50 border border-border-divider">
-            <div className="flex justify-between text-sm">
-              <span className="text-text-tertiary">Current Version:</span>
-              <span className="font-mono text-text-secondary">{versionInfo.version}</span>
-            </div>
+            {currentVersion && (
+              <div className="flex justify-between text-sm">
+                <span className="text-text-tertiary">Current Version:</span>
+                <span className="font-mono text-text-secondary">{currentVersion}</span>
+              </div>
+            )}
             {latestVersion && (
               <div className="flex justify-between text-sm">
                 <span className="text-text-tertiary">New Version:</span>
                 <span className="font-mono text-accent-success">{latestVersion}</span>
               </div>
             )}
-            <div className="flex justify-between text-sm">
-              <span className="text-text-tertiary">Last Build:</span>
-              <span className="text-text-secondary">{versionInfo.buildTimeReadable}</span>
-            </div>
+            {versionInfo?.buildTimeReadable && (
+              <div className="flex justify-between text-sm">
+                <span className="text-text-tertiary">Last Build:</span>
+                <span className="text-text-secondary">{versionInfo.buildTimeReadable}</span>
+              </div>
+            )}
           </div>
         )}
 

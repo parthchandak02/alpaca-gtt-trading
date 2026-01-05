@@ -66,7 +66,7 @@ class GTTOrderDetailUpdate(BaseModel):
     """Schema for updating an order detail."""
 
     trigger_price: float | None = None
-    quantity: int | None = None
+    quantity: float | None = None  # Changed to float to support fractional quantities (crypto)
     limit_price: float | None = None
     time_in_force: str | None = None
 
