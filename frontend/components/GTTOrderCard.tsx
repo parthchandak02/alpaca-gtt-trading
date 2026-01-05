@@ -22,7 +22,7 @@ import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Link2, Link2Off, Externa
 import { gttOrdersApi, ordersApi } from '@/services/api';
 
 // Utilities
-import { formatCurrency, formatDate, formatTimeAgo, formatPositionQuantity } from '@/lib/formatters';
+import { formatCurrency, formatDate, formatTimeAgo, formatPositionQuantity, formatQuantity } from '@/lib/formatters';
 import { getStatusBadgeVariant, formatStatusText } from '@/lib/orderStatus';
 import { cn } from '@/lib/utils';
 import { debug } from '@/lib/debug';
@@ -600,7 +600,7 @@ export function GTTOrderCard({
                                   setEditingDetail(detail.id);
                                   setEditFormData({
                                     trigger_price: detail.trigger_price,
-                                    quantity: detail.quantity,
+                                    quantity: detail.fractional_quantity || detail.quantity,
                                     limit_price: detail.limit_price,
                                     time_in_force: detail.time_in_force,
                                   });
@@ -652,7 +652,7 @@ export function GTTOrderCard({
                         <td className="py-1 px-2 text-text-primary font-medium font-numbers">
                           {formatCurrency(detail.trigger_price)}
                         </td>
-                        <td className="py-1 px-2 text-text-primary font-numbers">{detail.quantity}</td>
+                        <td className="py-1 px-2 text-text-primary font-numbers">{formatQuantity(detail.fractional_quantity || detail.quantity, isCrypto)}</td>
                         <td className="py-1 px-2 text-text-primary font-medium font-numbers">
                           {formatCurrency(detail.amount)}
                         </td>
@@ -723,7 +723,17 @@ export function GTTOrderCard({
                     setEditFormData(null);
                     onOrderUpdated?.();
                   } catch (error: any) {
-                    toast.error(error.response?.data?.detail || 'Failed to update order detail');
+                    // Handle Pydantic validation errors (array of objects) vs string errors
+                    const detail = error.response?.data?.detail;
+                    let errorMsg = 'Failed to update order detail';
+                    if (typeof detail === 'string') {
+                      errorMsg = detail;
+                    } else if (Array.isArray(detail) && detail.length > 0) {
+                      errorMsg = detail.map((e: any) => e.msg || e.message).join(', ');
+                    } else if (detail?.msg) {
+                      errorMsg = detail.msg;
+                    }
+                    toast.error(errorMsg);
                   }
                 }}
               />
@@ -753,7 +763,14 @@ export function GTTOrderCard({
                     setLinkOrderId('');
                     onOrderUpdated?.();
                   } catch (error: any) {
-                    toast.error(error.response?.data?.detail || 'Failed to link order detail');
+                    const detail = error.response?.data?.detail;
+                    let errorMsg = 'Failed to link order detail';
+                    if (typeof detail === 'string') {
+                      errorMsg = detail;
+                    } else if (Array.isArray(detail) && detail.length > 0) {
+                      errorMsg = detail.map((e: any) => e.msg || e.message).join(', ');
+                    }
+                    toast.error(errorMsg);
                   }
                 }}
               />
@@ -778,7 +795,14 @@ export function GTTOrderCard({
                     setUnlinkingDetail(null);
                     onOrderUpdated?.();
                   } catch (error: any) {
-                    toast.error(error.response?.data?.detail || 'Failed to unlink order detail');
+                    const detail = error.response?.data?.detail;
+                    let errorMsg = 'Failed to unlink order detail';
+                    if (typeof detail === 'string') {
+                      errorMsg = detail;
+                    } else if (Array.isArray(detail) && detail.length > 0) {
+                      errorMsg = detail.map((e: any) => e.msg || e.message).join(', ');
+                    }
+                    toast.error(errorMsg);
                   }
                 }}
               />

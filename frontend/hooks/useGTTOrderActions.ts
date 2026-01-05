@@ -33,7 +33,14 @@ export function useGTTOrderActions({
       silentRefreshOrders();
     } catch (error: any) {
       // On error, restore the order by refetching
-      toast.error(error.response?.data?.detail || 'Failed to delete order');
+      const detail = error.response?.data?.detail;
+      let errorMsg = 'Failed to delete order';
+      if (typeof detail === 'string') {
+        errorMsg = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        errorMsg = detail.map((e: any) => e.msg || e.message).join(', ');
+      }
+      toast.error(errorMsg);
       silentRefreshOrders(); // Restore correct state
       throw error; // Re-throw so ConfirmDeleteButton can handle loading state
     }

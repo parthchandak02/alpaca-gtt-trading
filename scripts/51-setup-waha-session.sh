@@ -13,14 +13,16 @@ NC='\033[0m'
 WAHA_URL="http://localhost:3001"
 SESSION_NAME="default"
 
-# Get API key from .env or docker logs
-if [ -f ".env" ]; then
-    API_KEY=$(grep "^WAHA_API_KEY=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
-fi
+# Get API key from docker logs first (source of truth for running instance)
+# Then fall back to .env if docker logs don't have it
+echo -e "${YELLOW}📋 Extracting API key from WAHA logs...${NC}"
+API_KEY=$(docker logs waha 2>&1 | grep "WAHA_API_KEY=" | head -1 | sed 's/.*WAHA_API_KEY=//' | tr -d ' ' || echo "")
 
 if [ -z "$API_KEY" ]; then
-    echo -e "${YELLOW}📋 Extracting API key from WAHA logs...${NC}"
-    API_KEY=$(docker logs waha 2>&1 | grep "WAHA_API_KEY=" | head -1 | sed 's/.*WAHA_API_KEY=//' | tr -d ' ' || echo "")
+    if [ -f ".env" ]; then
+        echo -e "${YELLOW}📋 API key not in logs, checking .env...${NC}"
+        API_KEY=$(grep "^WAHA_API_KEY=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
+    fi
 fi
 
 if [ -z "$API_KEY" ]; then
@@ -40,14 +42,30 @@ echo -e "${YELLOW}📱 Step 1: Checking session status...${NC}"
 STATUS_RESPONSE=$(curl -s "$WAHA_URL/api/sessions" \
   -H "X-Api-Key: $API_KEY")
 
+# Check if we got unauthorized
+if echo "$STATUS_RESPONSE" | grep -q "Unauthorized"; then
+    echo -e "${RED}❌ Unauthorized - API key may be incorrect${NC}"
+    echo -e "${YELLOW}   Current API key: ${API_KEY:0:10}...${NC}"
+    echo -e "${YELLOW}   Get new key: docker logs waha | grep WAHA_API_KEY${NC}"
+    exit 1
+fi
+
 SESSION_STATUS=$(echo "$STATUS_RESPONSE" | jq -r ".[] | select(.name==\"$SESSION_NAME\") | .status" 2>/dev/null || echo "unknown")
 
 if [ -z "$SESSION_STATUS" ] || [ "$SESSION_STATUS" = "null" ] || [ "$SESSION_STATUS" = "unknown" ]; then
     echo -e "${YELLOW}   Session doesn't exist, creating it...${NC}"
-    curl -s -X POST "$WAHA_URL/api/sessions" \
+    CREATE_RESPONSE=$(curl -s -X POST "$WAHA_URL/api/sessions" \
       -H "Content-Type: application/json" \
       -H "X-Api-Key: $API_KEY" \
-      -d "{\"name\": \"$SESSION_NAME\"}" > /dev/null
+      -d "{\"name\": \"$SESSION_NAME\"}")
+    
+    # Check if creation failed due to existing session
+    if echo "$CREATE_RESPONSE" | grep -q "already exists"; then
+        echo -e "${GREEN}✅ Session already exists${NC}"
+    elif echo "$CREATE_RESPONSE" | grep -q "Unauthorized"; then
+        echo -e "${RED}❌ Unauthorized during session creation${NC}"
+        exit 1
+    fi
     sleep 2
 fi
 
@@ -56,7 +74,17 @@ echo -e "${YELLOW}📱 Step 2: Starting session '$SESSION_NAME'...${NC}"
 START_RESPONSE=$(curl -s -X POST "$WAHA_URL/api/sessions/$SESSION_NAME/start" \
   -H "X-Api-Key: $API_KEY")
 
-echo "$START_RESPONSE" | jq '.' 2>/dev/null || echo "$START_RESPONSE"
+# Check for errors
+if echo "$START_RESPONSE" | grep -q "Unauthorized"; then
+    echo -e "${RED}❌ Unauthorized - API key may be incorrect${NC}"
+    echo -e "${YELLOW}   Current API key: ${API_KEY:0:10}...${NC}"
+    echo -e "${YELLOW}   Get new key: docker logs waha | grep WAHA_API_KEY${NC}"
+    exit 1
+elif echo "$START_RESPONSE" | grep -q "already started"; then
+    echo -e "${GREEN}✅ Session is already started${NC}"
+else
+    echo "$START_RESPONSE" | jq '.' 2>/dev/null || echo "$START_RESPONSE"
+fi
 echo ""
 
 # Wait a moment for session to initialize
@@ -86,16 +114,17 @@ while [ $WAITED -lt $MAX_WAIT ]; do
     fi
 done
 
-# Step 4: Get QR code
-echo -e "${YELLOW}📱 Step 4: Getting QR code...${NC}"
-QR_RESPONSE=$(curl -s "$WAHA_URL/api/$SESSION_NAME/auth/qr" \
-  -H "Accept: application/json" \
-  -H "X-Api-Key: $API_KEY")
+# Step 4: Get QR code (only if session needs authentication)
+echo -e "${YELLOW}📱 Step 4: Checking if QR code is needed...${NC}"
+if [ "$SESSION_STATUS" = "SCAN_QR_CODE" ]; then
+    QR_RESPONSE=$(curl -s "$WAHA_URL/api/$SESSION_NAME/auth/qr" \
+      -H "Accept: application/json" \
+      -H "X-Api-Key: $API_KEY")
 
-# Check if we got QR code data
-if echo "$QR_RESPONSE" | grep -q '"data"'; then
-    QR_DATA=$(echo "$QR_RESPONSE" | jq -r '.data' 2>/dev/null)
-    if [ -n "$QR_DATA" ] && [ "$QR_DATA" != "null" ]; then
+    # Check if we got QR code data
+    if echo "$QR_RESPONSE" | grep -q '"data"'; then
+        QR_DATA=$(echo "$QR_RESPONSE" | jq -r '.data' 2>/dev/null)
+        if [ -n "$QR_DATA" ] && [ "$QR_DATA" != "null" ]; then
         echo -e "${GREEN}✅ QR code received!${NC}"
         echo ""
         echo -e "${YELLOW}📋 To view and scan QR code:${NC}"
@@ -126,14 +155,17 @@ echo "Option 2: Direct API call (save to file):"
     echo "  5. Set Accept header to 'application/json'"
     echo "  6. Click 'Try it out' → 'Execute'"
     echo "  7. Copy the 'data' field (base64) and convert to image"
-        echo ""
+            echo ""
+        else
+            echo -e "${YELLOW}⚠️  QR code not ready yet. Session may still be starting...${NC}"
+        fi
     else
-        echo -e "${YELLOW}⚠️  QR code not ready yet. Session may still be starting...${NC}"
+        echo -e "${YELLOW}⚠️  Could not get QR code. Response:${NC}"
+        echo "$QR_RESPONSE" | head -5
+        echo ""
     fi
 else
-    echo -e "${YELLOW}⚠️  Could not get QR code. Response:${NC}"
-    echo "$QR_RESPONSE" | head -5
-    echo ""
+    echo -e "${GREEN}✅ Session is already authenticated - no QR code needed!${NC}"
 fi
 
 # Step 5: Check session status

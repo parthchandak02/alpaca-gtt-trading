@@ -30,13 +30,14 @@ class WhatsAppService:
         self.api_key = getattr(settings, "waha_api_key", "")
         self.enabled = getattr(settings, "whatsapp_enabled", False)
         self.phone_number = getattr(settings, "whatsapp_phone_number", "")
+        self.group_id = getattr(settings, "whatsapp_group_id", "")
 
         if not self.enabled:
             logger.debug("WhatsApp notifications are disabled")
-        elif not self.phone_number:
+        elif not self.phone_number and not self.group_id:
             logger.warning(
-                "WhatsApp enabled but phone number not configured. "
-                "Set WHATSAPP_PHONE_NUMBER in .env"
+                "WhatsApp enabled but no recipient configured. "
+                "Set WHATSAPP_PHONE_NUMBER or WHATSAPP_GROUP_ID in .env"
             )
 
     def _get_headers(self) -> dict:
@@ -75,13 +76,14 @@ class WhatsAppService:
         return f"{digits_only}@c.us"
 
     def send_message(
-        self, phone_number: Optional[str] = None, message: str = ""
+        self, phone_number: Optional[str] = None, message: str = "", use_group: bool = True
     ) -> bool:
         """Send WhatsApp message via WAHA API.
         
         Args:
             phone_number: Recipient phone number (optional, uses default if not provided)
             message: Message text to send
+            use_group: If True and group_id is configured, send to group instead of phone
             
         Returns:
             True if message sent successfully, False otherwise
@@ -95,14 +97,18 @@ class WhatsAppService:
             return False
 
         try:
-            # Use provided phone number or default from config
-            recipient = phone_number or self.phone_number
-            if not recipient:
-                logger.error("No phone number provided and no default configured")
-                return False
-
-            # Format phone number for WAHA
-            chat_id = self._format_phone_number(recipient)
+            # Determine chat_id: prefer group if configured and use_group is True
+            if use_group and self.group_id:
+                # Group ID already includes @g.us suffix
+                chat_id = self.group_id if "@" in self.group_id else f"{self.group_id}@g.us"
+            else:
+                # Use provided phone number or default from config
+                recipient = phone_number or self.phone_number
+                if not recipient:
+                    logger.error("No phone number provided and no default configured")
+                    return False
+                # Format phone number for WAHA
+                chat_id = self._format_phone_number(recipient)
 
             # Prepare API request
             url = f"{self.api_url}/api/sendText"

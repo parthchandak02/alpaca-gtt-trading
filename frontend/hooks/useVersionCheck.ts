@@ -164,7 +164,8 @@ export function useVersionCheck() {
     // This only happens on Cloudflare deployments, not backend restarts
     if (frontendVersion !== referenceVersion) {
       debug.log(`[Version] New version detected! Stored: ${referenceVersion}, Frontend: ${frontendVersion}`);
-      setLatestVersion(frontendVersion);
+      setCurrentVersion(referenceVersion);  // Set current to the OLD (stored) version
+      setLatestVersion(frontendVersion);    // Set latest to the NEW version
       setVersionInfo(frontendData);
       
       // Always show dialog when new version is detected (even if already showing)

@@ -14,14 +14,16 @@ NC='\033[0m'
 WAHA_URL="http://localhost:3001"
 SESSION_NAME="default"
 
-# Get API key from .env or docker logs
-if [ -f ".env" ]; then
-    API_KEY=$(grep "^WAHA_API_KEY=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
-fi
+# Get API key from docker logs first (source of truth for running instance)
+# Then fall back to .env if docker logs don't have it
+echo -e "${YELLOW}📋 Extracting API key from WAHA logs...${NC}"
+API_KEY=$(docker logs waha 2>&1 | grep "WAHA_API_KEY=" | head -1 | sed 's/.*WAHA_API_KEY=//' | tr -d ' ' || echo "")
 
 if [ -z "$API_KEY" ]; then
-    echo -e "${YELLOW}📋 Extracting API key from WAHA logs...${NC}"
-    API_KEY=$(docker logs waha 2>&1 | grep "WAHA_API_KEY=" | head -1 | sed 's/.*WAHA_API_KEY=//' | tr -d ' ' || echo "")
+    if [ -f ".env" ]; then
+        echo -e "${YELLOW}📋 API key not in logs, checking .env...${NC}"
+        API_KEY=$(grep "^WAHA_API_KEY=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
+    fi
 fi
 
 if [ -z "$API_KEY" ]; then
@@ -42,7 +44,7 @@ CREATE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WAHA_URL/api/sessions" \
   -d "{\"name\": \"$SESSION_NAME\"}")
 
 HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -1)
-BODY=$(echo "$CREATE_RESPONSE" | head -n -1)
+BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
 
 if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
     echo -e "${GREEN}✅ Session created/updated (HTTP $HTTP_CODE)${NC}"
