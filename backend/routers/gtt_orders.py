@@ -13,7 +13,7 @@ from core.sse_manager import sse_manager
 from database import get_db
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from gtt_service import GTTService
-from models import GTTOrderDetail, OrderStatus
+from models import GTTOrder, GTTOrderDetail, OrderStatus
 from rate_limiter import rate_limit_alpaca_call
 from schemas import (
     GTTOrderCreate,
@@ -963,7 +963,15 @@ async def update_order_detail(
             detail.trigger_price = update_data.trigger_price
 
         if update_data.quantity is not None:
-            detail.quantity = update_data.quantity
+            # Handle fractional quantities (crypto) vs whole quantities (stocks)
+            if update_data.quantity < 1:
+                # Fractional quantity - store in fractional_quantity field
+                detail.fractional_quantity = update_data.quantity
+                detail.quantity = 1  # Display quantity (rounded up)
+            else:
+                # Whole quantity - store in quantity field
+                detail.quantity = int(update_data.quantity)
+                detail.fractional_quantity = None
 
         if update_data.limit_price is not None:
             detail.limit_price = update_data.limit_price
@@ -971,9 +979,23 @@ async def update_order_detail(
         if update_data.time_in_force is not None:
             detail.time_in_force = update_data.time_in_force
 
-        # Recalculate amount
-        detail.amount = detail.quantity * detail.limit_price
+        # Recalculate amount using actual quantity (fractional or whole)
+        actual_qty = detail.fractional_quantity if detail.fractional_quantity else detail.quantity
+        detail.amount = actual_qty * detail.limit_price
         detail.updated_at = datetime.utcnow()
+
+        # Recalculate parent order's total_value from all details
+        parent_order = db.query(GTTOrder).filter(GTTOrder.id == order_id).first()
+        if parent_order:
+            all_details = db.query(GTTOrderDetail).filter(
+                GTTOrderDetail.gtt_order_id == order_id
+            ).all()
+            new_total = sum(
+                (d.fractional_quantity if d.fractional_quantity else d.quantity) * d.limit_price
+                for d in all_details
+            )
+            parent_order.total_value = round(new_total, 2)
+            parent_order.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(detail)
@@ -1088,8 +1110,9 @@ async def link_order_detail(
             elif alpaca_order.get("quantity"):
                 detail.quantity = int(float(alpaca_order["quantity"]))
 
-            # Recalculate amount
-            detail.amount = detail.quantity * detail.limit_price
+            # Recalculate amount using actual quantity (fractional or whole)
+            actual_qty = detail.fractional_quantity if detail.fractional_quantity else detail.quantity
+            detail.amount = actual_qty * detail.limit_price
 
         detail.updated_at = datetime.utcnow()
 
@@ -1119,6 +1142,12 @@ async def link_order_detail(
             db, alpaca_client, gtt_order
         )
         gtt_order.locked_buying_power = locked_amount
+
+        # Recalculate total_value from all details
+        gtt_order.total_value = round(sum(
+            (d.fractional_quantity if d.fractional_quantity else d.quantity) * d.limit_price
+            for d in gtt_order.order_details
+        ), 2)
 
         db.commit()
         db.refresh(detail)
