@@ -14,7 +14,7 @@ GTT (Good-Till-Triggered) order management with real-time price monitoring and a
 
 ## Configuration
 
-Create `.env` in project root:
+Create `.env` in project root (copy from `.env.example`):
 
 ```bash
 # ========== TRADING MODE ==========
