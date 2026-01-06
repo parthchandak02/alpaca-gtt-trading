@@ -197,6 +197,42 @@ def categorize_error(description: str) -> tuple[str, str]:
     return (description[:40] + "..." if len(description) > 40 else description, "")
 
 
+def get_closest_triggers(orders_by_symbol: dict, max_items: int = 5) -> list:
+    """Get symbols closest to triggering based on current prices.
+    
+    Returns list of (symbol, trigger_price, current_price, percent_away)
+    """
+    from core.price_cache_service import PriceCacheService
+    
+    # Get all symbols with pending triggers
+    symbols_with_triggers = []
+    for symbol, info in orders_by_symbol.items():
+        if info.get("next_trigger"):
+            symbols_with_triggers.append((symbol, info["next_trigger"]))
+    
+    if not symbols_with_triggers:
+        return []
+    
+    # Get current prices from cache
+    symbols = [s[0] for s in symbols_with_triggers]
+    current_prices = PriceCacheService.get_prices(symbols)
+    
+    # Calculate distance to trigger for each
+    closest = []
+    for symbol, trigger_price in symbols_with_triggers:
+        current_price = current_prices.get(symbol)
+        if current_price and current_price > 0 and trigger_price > 0:
+            # How far above trigger is the current price? (negative = below trigger)
+            percent_away = ((current_price - trigger_price) / trigger_price) * 100
+            # Only include if price is above trigger (hasn't fired yet)
+            if percent_away > 0:
+                closest.append((symbol, trigger_price, current_price, percent_away))
+    
+    # Sort by closest (smallest percent_away first)
+    closest.sort(key=lambda x: x[3])
+    return closest[:max_items]
+
+
 def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
     """Generate the enhanced daily summary message.
     
@@ -220,26 +256,47 @@ def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
     
     # Account Overview (compact format)
     if account:
-        equity = account.get("equity", 0)
-        cash = account.get("cash", 0)
-        last_equity = account.get("last_equity", equity)
+        equity = float(account.get("equity", 0))
+        cash = float(account.get("cash", 0))
+        last_equity = float(account.get("last_equity", equity))
         
         # Calculate today's P/L
         pl_dollars = equity - last_equity if last_equity else 0
         pl_percent = ((equity - last_equity) / last_equity * 100) if last_equity and last_equity > 0 else 0
         
-        message += f"Account: {format_currency(equity)} equity | {format_currency(cash)} cash\n"
+        message += f"Account: {format_currency(equity)} | Cash: {format_currency(cash)}\n"
         
-        # Today's P/L
-        emoji = "+" if pl_dollars >= 0 else ""
-        message += f"Today's P/L: {emoji}{format_currency(pl_dollars)} ({format_percent(pl_percent)})\n"
+        # Today's P/L with emoji
+        pl_emoji = "+" if pl_dollars >= 0 else ""
+        message += f"Today: {pl_emoji}{format_currency(pl_dollars)} ({format_percent(pl_percent)})\n"
     
     message += "\n"
+    
+    # Filled Today (show first if there are fills - most important)
+    filled_today = gtt_summary.get("filled_today_by_symbol", {})
+    filled_count = gtt_summary.get("filled_today_count", 0)
+    filled_amount = gtt_summary.get("filled_today_amount", 0)
+    
+    if filled_count > 0:
+        message += f"--- Filled Today ({filled_count} orders, {format_currency(filled_amount)}) ---\n"
+        
+        for symbol in sorted(filled_today.keys()):
+            fills = filled_today[symbol]
+            total_qty = sum(f["qty"] for f in fills)
+            total_amount = sum(f["amount"] for f in fills)
+            avg_price = sum(f["price"] * f["qty"] for f in fills) / total_qty if total_qty > 0 else 0
+            
+            # Format qty nicely (no decimals if whole number)
+            qty_str = f"{total_qty:.4f}".rstrip('0').rstrip('.') if total_qty < 1 else f"{total_qty:.2f}".rstrip('0').rstrip('.')
+            message += f"  {symbol}: {qty_str} @ {format_price(avg_price)} = {format_currency(total_amount)}\n"
+        
+        message += "\n"
     
     # GTT Orders Summary - compact format
     orders_by_symbol = gtt_summary.get("orders_by_symbol", {})
     total_symbols = gtt_summary.get("total_symbols", 0)
     total_pending = gtt_summary.get("total_pending", 0)
+    total_locked = gtt_summary.get("total_locked_bp", 0)
     filled_today_by_symbol = gtt_summary.get("filled_today_by_symbol", {})
     
     if total_symbols > 0:
@@ -247,7 +304,9 @@ def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
         total_filled = sum(info["filled_count"] for info in orders_by_symbol.values())
         total_orders = sum(info["total_orders"] for info in orders_by_symbol.values())
         
-        message += f"GTT Orders: {total_symbols} symbols, {total_filled}/{total_orders} filled, {total_pending} pending\n"
+        # Header with locked BP
+        locked_str = f" | {format_currency(total_locked)} locked" if total_locked > 0 else ""
+        message += f"--- GTT Orders ({total_symbols} symbols, {total_filled}/{total_orders} filled){locked_str} ---\n"
         
         # Compact list: symbol(filled/total) format, multiple per line
         # Sort: fills today first, then by fill ratio
@@ -268,34 +327,21 @@ def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
             marker = "*" if symbol in filled_today_by_symbol else ""
             entries.append(f"{marker}{symbol}({filled}/{total})")
         
-        # Join with spaces, wrap lines naturally
+        # Join with spaces
         message += "  " + " ".join(entries) + "\n"
-    else:
-        message += "GTT Orders: None active\n"
-    
-    message += "\n"
-    
-    # Filled Today
-    filled_today = gtt_summary.get("filled_today_by_symbol", {})
-    filled_count = gtt_summary.get("filled_today_count", 0)
-    filled_amount = gtt_summary.get("filled_today_amount", 0)
-    
-    if filled_count > 0:
-        message += f"Filled Today ({filled_count} orders, {format_currency(filled_amount)} total):\n"
-        
-        for symbol in sorted(filled_today.keys()):
-            fills = filled_today[symbol]
-            total_qty = sum(f["qty"] for f in fills)
-            avg_price = sum(f["price"] * f["qty"] for f in fills) / total_qty if total_qty > 0 else 0
-            
-            message += f"  - {symbol}: {total_qty} @ {format_price(avg_price)}\n"
         
         message += "\n"
-    
-    # Locked Buying Power
-    total_locked = gtt_summary.get("total_locked_bp", 0)
-    if total_locked > 0:
-        message += f"Locked Buying Power: {format_currency(total_locked)}\n\n"
+        
+        # Closest to Trigger (only if we have pending orders)
+        if total_pending > 0:
+            closest = get_closest_triggers(orders_by_symbol, max_items=5)
+            if closest:
+                message += "--- Closest to Trigger ---\n"
+                for symbol, trigger, current, pct_away in closest:
+                    message += f"  {symbol}: {format_price(trigger)} (now {format_price(current)}, {pct_away:.1f}% away)\n"
+                message += "\n"
+    else:
+        message += "GTT Orders: None active\n\n"
     
     # Failed Orders (only show if there are failures)
     if failed_activities:
