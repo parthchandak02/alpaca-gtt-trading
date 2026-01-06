@@ -17,9 +17,14 @@ ALPACA_API_TIMEOUT = 15.0
 # Global Alpaca client for checking market status
 _alpaca_client: AlpacaClient | None = None
 
-# Track previous market status to detect close transition
-_previous_market_open: bool | None = None
+# Track when daily summary was last sent
 _last_summary_date: str | None = None
+
+# Daily summary time window (in UTC)
+# US market closes at 4:00 PM EST = 21:00 UTC (winter) / 20:00 UTC (summer)
+# We send summary between 21:00-21:30 UTC to catch both DST scenarios
+DAILY_SUMMARY_START_HOUR_UTC = 20  # 8 PM UTC (covers summer: 4 PM EDT)
+DAILY_SUMMARY_END_HOUR_UTC = 22    # 10 PM UTC (covers winter: 4 PM EST + buffer)
 
 
 def set_alpaca_client_for_monitoring(client: AlpacaClient):
@@ -34,7 +39,7 @@ async def price_monitoring_loop():
     Uses fixed 60-second polling interval to avoid overloading Alpaca API.
     This ensures we stay well within rate limits (200 requests/minute).
     """
-    global _alpaca_client, _previous_market_open, _last_summary_date
+    global _alpaca_client, _last_summary_date
 
     logger.info("=" * 80)
     logger.info("🚀 GTT PRICE MONITORING SERVICE STARTED")
@@ -56,44 +61,51 @@ async def price_monitoring_loop():
                 logger.info("🔍 PRICE MONITORING CYCLE STARTED")
                 logger.info("-" * 80)
                 
-                # Check market status for daily summary
-                current_market_open = False
-                try:
-                    if _alpaca_client:
-                        market_clock = await asyncio.wait_for(
-                            run_in_threadpool(_alpaca_client.get_market_clock),
-                            timeout=2.0,
-                        )
-                        current_market_open = market_clock.get("is_open", False)
-                except Exception:
-                    pass
+                # Check if it's time to send daily summary (time-based, not transition-based)
+                # This is more reliable than detecting market close transitions
+                now_utc = datetime.utcnow()
+                today_date = now_utc.strftime("%Y-%m-%d")
+                current_hour = now_utc.hour
                 
-                # Detect market close transition and send daily summary
-                today_date = datetime.utcnow().strftime("%Y-%m-%d")
-                if (
-                    _previous_market_open is True
-                    and current_market_open is False
+                # Send daily summary if:
+                # 1. Within the summary time window (8 PM - 10 PM UTC covers EST/EDT market close)
+                # 2. Haven't sent today yet
+                # 3. Market is actually closed (to avoid sending during extended hours)
+                should_send_summary = (
+                    DAILY_SUMMARY_START_HOUR_UTC <= current_hour < DAILY_SUMMARY_END_HOUR_UTC
                     and _last_summary_date != today_date
-                ):
-                    logger.info("📊 Market closed - sending enhanced daily trading summary")
-                    try:
-                        from core.daily_summary_service import send_enhanced_daily_summary
-                        
-                        await asyncio.wait_for(
-                            run_in_threadpool(
-                                send_enhanced_daily_summary, db, _alpaca_client
-                            ),
-                            timeout=15.0,
-                        )
-                        _last_summary_date = today_date
-                        logger.info("✅ Daily trading summary sent successfully")
-                    except TimeoutError:
-                        logger.error("❌ Timeout sending daily summary")
-                    except Exception as e:
-                        logger.error(f"❌ Error sending daily summary: {e}")
+                )
                 
-                # Update previous market status
-                _previous_market_open = current_market_open
+                if should_send_summary:
+                    # Double-check market is closed before sending
+                    market_is_closed = True
+                    try:
+                        if _alpaca_client:
+                            market_clock = await asyncio.wait_for(
+                                run_in_threadpool(_alpaca_client.get_market_clock),
+                                timeout=2.0,
+                            )
+                            market_is_closed = not market_clock.get("is_open", False)
+                    except Exception:
+                        pass  # If we can't check, assume closed (we're in the right time window)
+                    
+                    if market_is_closed:
+                        logger.info(f"📊 Daily summary time ({current_hour}:00 UTC) - sending trading summary")
+                        try:
+                            from core.daily_summary_service import send_enhanced_daily_summary
+                            
+                            await asyncio.wait_for(
+                                run_in_threadpool(
+                                    send_enhanced_daily_summary, db, _alpaca_client
+                                ),
+                                timeout=15.0,
+                            )
+                            _last_summary_date = today_date
+                            logger.info("✅ Daily trading summary sent successfully")
+                        except TimeoutError:
+                            logger.error("❌ Timeout sending daily summary")
+                        except Exception as e:
+                            logger.error(f"❌ Error sending daily summary: {e}")
                 # Check for corporate actions first (may cancel orders)
                 # Wrap blocking calls with timeout protection
                 try:
