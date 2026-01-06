@@ -166,6 +166,37 @@ def get_todays_failed_activities(db: Session) -> list:
     )
 
 
+def categorize_error(description: str) -> tuple[str, str]:
+    """Categorize an error from its description.
+    
+    Returns:
+        Tuple of (error_category, fix_suggestion)
+    """
+    desc_lower = description.lower()
+    
+    # Check for common error patterns
+    if "40310000" in description or "minimal amount" in desc_lower or "below $1" in desc_lower:
+        return ("Below $1 minimum", "Increase qty so value >= $1")
+    
+    if "insufficient" in desc_lower or "buying power" in desc_lower:
+        return ("Insufficient funds", "Add funds or reduce order size")
+    
+    if "0.01" in description and "quantity" in desc_lower:
+        return ("Qty below 0.01", "Increase quantity to >= 0.01")
+    
+    if "fractionable" in desc_lower or "fractional" in desc_lower:
+        return ("Not fractionable", "Use whole number quantities")
+    
+    if "market" in desc_lower and "closed" in desc_lower:
+        return ("Market closed", "Wait for market hours")
+    
+    if "symbol" in desc_lower and ("invalid" in desc_lower or "not found" in desc_lower):
+        return ("Invalid symbol", "Check symbol exists on Alpaca")
+    
+    # Default: truncate description
+    return (description[:40] + "..." if len(description) > 40 else description, "")
+
+
 def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
     """Generate the enhanced daily summary message.
     
@@ -205,26 +236,40 @@ def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
     
     message += "\n"
     
-    # GTT Orders Summary
+    # GTT Orders Summary - compact format
     orders_by_symbol = gtt_summary.get("orders_by_symbol", {})
     total_symbols = gtt_summary.get("total_symbols", 0)
+    total_pending = gtt_summary.get("total_pending", 0)
+    filled_today_by_symbol = gtt_summary.get("filled_today_by_symbol", {})
     
     if total_symbols > 0:
-        message += f"GTT Orders ({total_symbols} symbols active):\n"
+        # Calculate totals
+        total_filled = sum(info["filled_count"] for info in orders_by_symbol.values())
+        total_orders = sum(info["total_orders"] for info in orders_by_symbol.values())
         
-        # Sort by symbol for consistent display
-        for symbol in sorted(orders_by_symbol.keys()):
+        message += f"GTT Orders: {total_symbols} symbols, {total_filled}/{total_orders} filled, {total_pending} pending\n"
+        
+        # Compact list: symbol(filled/total) format, multiple per line
+        # Sort: fills today first, then by fill ratio
+        def sort_key(symbol):
+            info = orders_by_symbol[symbol]
+            has_fill_today = 1 if symbol in filled_today_by_symbol else 0
+            fill_ratio = info["filled_count"] / max(info["total_orders"], 1)
+            return (-has_fill_today, -fill_ratio, symbol)
+        
+        sorted_symbols = sorted(orders_by_symbol.keys(), key=sort_key)
+        
+        # Build compact entries: AAPL(2/5) or *AAPL(2/5) for today's fills
+        entries = []
+        for symbol in sorted_symbols:
             info = orders_by_symbol[symbol]
             filled = info["filled_count"]
             total = info["total_orders"]
-            pending = info["pending_count"]
-            next_trigger = info["next_trigger"]
-            
-            # Format: AAPL: 2/5 filled | Next: $172.50
-            status_str = f"{filled}/{total} filled" if filled > 0 else f"{pending} pending"
-            trigger_str = f"Next: {format_price(next_trigger)}" if next_trigger else "All triggered"
-            
-            message += f"  {symbol}: {status_str} | {trigger_str}\n"
+            marker = "*" if symbol in filled_today_by_symbol else ""
+            entries.append(f"{marker}{symbol}({filled}/{total})")
+        
+        # Join with spaces, wrap lines naturally
+        message += "  " + " ".join(entries) + "\n"
     else:
         message += "GTT Orders: None active\n"
     
@@ -254,16 +299,53 @@ def generate_daily_summary(db: Session, alpaca_client: AlpacaClient) -> str:
     
     # Failed Orders (only show if there are failures)
     if failed_activities:
-        failed_by_symbol = defaultdict(int)
+        # Group by symbol and error category
+        failed_by_symbol_category = defaultdict(lambda: defaultdict(int))
         for activity in failed_activities:
-            failed_by_symbol[activity.symbol] += 1
+            category, _ = categorize_error(activity.description)
+            failed_by_symbol_category[activity.symbol][category] += 1
         
-        message += f"Failed Orders ({len(failed_activities)} attempts):\n"
-        for symbol, count in sorted(failed_by_symbol.items(), key=lambda x: -x[1])[:5]:
-            message += f"  - {symbol}: {count}x\n"
+        total_symbols = len(failed_by_symbol_category)
+        message += f"Failed Orders ({len(failed_activities)} attempts, {total_symbols} symbols):\n"
         
-        if len(failed_by_symbol) > 5:
-            message += f"  ... and {len(failed_by_symbol) - 5} more\n"
+        # Show top 5 symbols with most failures
+        sorted_symbols = sorted(
+            failed_by_symbol_category.items(),
+            key=lambda x: sum(x[1].values()),
+            reverse=True
+        )[:5]
+        
+        for symbol, categories in sorted_symbols:
+            total = sum(categories.values())
+            # Get the most common error category for this symbol
+            top_category = max(categories.items(), key=lambda x: x[1])
+            category_name, count = top_category
+            
+            if len(categories) == 1:
+                message += f"  - {symbol}: {total}x ({category_name})\n"
+            else:
+                message += f"  - {symbol}: {total}x (mostly: {category_name})\n"
+        
+        if total_symbols > 5:
+            message += f"  ... and {total_symbols - 5} more symbols\n"
+        
+        # Show fix suggestion for the most common error
+        all_categories = defaultdict(int)
+        for categories in failed_by_symbol_category.values():
+            for cat, count in categories.items():
+                all_categories[cat] += count
+        
+        if all_categories:
+            top_error = max(all_categories.items(), key=lambda x: x[1])[0]
+            _, fix = categorize_error(top_error)  # Get fix from category name
+            if not fix:
+                # Re-categorize to get the fix
+                for activity in failed_activities:
+                    cat, fix = categorize_error(activity.description)
+                    if cat == top_error and fix:
+                        break
+            if fix:
+                message += f"  Tip: {fix}\n"
         
         message += "\n"
     
