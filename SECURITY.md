@@ -9,18 +9,11 @@
 
 A live Alpaca API key was previously committed in `update_keys.sh` on the public `alpaca-gtt-trading` repo.
 
-**If you have not already:**
+**Remediation status (2026-07-01):**
 
-1. Rotate/revoke the exposed key in the [Alpaca dashboard](https://app.alpaca.markets/).
-2. Push the security cleanup commit that removes `update_keys.sh` and untracks machine-specific configs.
-3. Purge the key from Git history (required — deleting the file alone is not enough):
+- [x] Alpaca API key rotated by owner
+- [x] `update_keys.sh` removed from repo and git history (`git filter-repo`)
+- [x] Purged history force-pushed to `parthchandak02/alpaca-gtt-trading`
+- [x] GitHub code search returns 0 matches for the old key string
 
-```bash
-# Install: brew install git-filter-repo
-cd /path/to/alpaca-trader
-git filter-repo --path update_keys.sh --invert-paths --force
-git remote add origin git@github.com:parthchandak02/alpaca-gtt-trading.git
-git push origin main --force
-```
-
-> Only run `--force` push after confirming no collaborators need the old history.
+If you clone on a new machine, copy `cloudflared-config.example.yml` → `cloudflared-config.yml` and `ecosystem.config.example.js` → `ecosystem.config.js`.
