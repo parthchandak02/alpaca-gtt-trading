@@ -1,0 +1,19 @@
+# Cloudflare Tunnel Configuration (template)
+# Copy to cloudflared-config.yml and fill in your tunnel ID + credentials path.
+# Run: cloudflared tunnel --config cloudflared-config.yml run
+
+tunnel: YOUR_TUNNEL_UUID_HERE
+credentials-file: ~/.cloudflared/YOUR_TUNNEL_UUID_HERE.json
+
+ingress:
+  - hostname: api.example.com
+    service: http://localhost:8000
+    originRequest:
+      keepAliveTimeout: 6h
+      keepAliveConnections: 100
+      tcpKeepAlive: 30s
+      connectTimeout: 10s
+      tcpTimeout: 30s
+      httpHostHeader: api.example.com
+
+  - service: http_status:404
