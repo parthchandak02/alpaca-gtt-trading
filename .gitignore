@@ -49,11 +49,13 @@ frontend/node_modules/
 .next/
 frontend/.next/
 
-# PM2
+# PM2 (machine-specific — copy from ecosystem.config.example.js)
 .pm2/
+ecosystem.config.js
 ecosystem.config.local.js
 
-# Cloudflare
+# Cloudflare (machine-specific — copy from cloudflared-config.example.yml)
+cloudflared-config.yml
 .cloudflared/
 .wrangler/
 wrangler.toml.local
