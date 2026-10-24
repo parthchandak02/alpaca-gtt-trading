@@ -269,7 +269,8 @@ class AlpacaClient:
                         "market_value": float(pos.market_value),
                         "cost_basis": float(pos.cost_basis),
                         "unrealized_pl": float(pos.unrealized_pl),
-                        "unrealized_plpc": float(pos.unrealized_plpc),
+                        # Alpaca returns a fraction; the UI shows percent
+                        "unrealized_plpc": float(pos.unrealized_plpc) * 100,
                     }
                 )
             return result

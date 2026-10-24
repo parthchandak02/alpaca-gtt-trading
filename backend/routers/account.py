@@ -511,8 +511,8 @@ async def _get_portfolio_pl_impl(
             # Filter out None values and get the last valid value
             valid_pct_values = [v for v in profit_loss_pct_array if v is not None]
             if valid_pct_values:
-                # Use last valid API value
-                latest_pl_pct = float(valid_pct_values[-1])
+                # Alpaca returns profit_loss_pct as a fraction (0.0123 = 1.23%)
+                latest_pl_pct = float(valid_pct_values[-1]) * 100
             else:
                 # All values were None, calculate from equity and base_value
                 if base_value > 0:
