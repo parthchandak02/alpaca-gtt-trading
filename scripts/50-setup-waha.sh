@@ -1,6 +1,6 @@
 #!/bin/bash
 # Setup script for WAHA (WhatsApp HTTP API) - Now uses shared WAHA instance
-# WAHA is managed independently at /Users/parthchandak/Documents/waha
+# WAHA is managed independently at /home/parth/Documents/waha
 
 set -e  # Exit on error
 
@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-WAHA_DIR="/Users/parthchandak/Documents/waha"
+WAHA_DIR="/home/parth/Documents/waha"
 WAHA_PORT=3001
 
 echo -e "${GREEN}🚀 WAHA (WhatsApp HTTP API) Setup${NC}"

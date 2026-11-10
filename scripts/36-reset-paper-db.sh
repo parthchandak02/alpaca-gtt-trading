@@ -3,7 +3,7 @@
 
 set -e
 
-BACKEND_DIR="/Users/parthchandak/Documents/alpaca-trader/backend"
+BACKEND_DIR="/home/parth/Documents/alpaca-trader/backend"
 PAPER_DB="$BACKEND_DIR/database/alpaca_orders_paper.db"
 
 echo "🗑️  Resetting paper trading database..."

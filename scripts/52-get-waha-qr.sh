@@ -29,8 +29,8 @@ fi
 
 if [ -z "$API_KEY" ]; then
     # Try from alpaca-trader .env
-    if [ -f "/Users/parthchandak/Documents/alpaca-trader/.env" ]; then
-        API_KEY=$(grep "^WAHA_API_KEY=" /Users/parthchandak/Documents/alpaca-trader/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
+    if [ -f "/home/parth/Documents/alpaca-trader/.env" ]; then
+        API_KEY=$(grep "^WAHA_API_KEY=" /home/parth/Documents/alpaca-trader/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
     fi
 fi
 

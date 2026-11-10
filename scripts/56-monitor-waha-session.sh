@@ -13,8 +13,8 @@ WAHA_URL="http://localhost:3001"
 SESSION_NAME="default"
 
 # Get API key
-if [ -f "/Users/parthchandak/Documents/alpaca-trader/.env" ]; then
-    API_KEY=$(grep "^WAHA_API_KEY=" /Users/parthchandak/Documents/alpaca-trader/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
+if [ -f "/home/parth/Documents/alpaca-trader/.env" ]; then
+    API_KEY=$(grep "^WAHA_API_KEY=" /home/parth/Documents/alpaca-trader/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
 elif [ -f ".env" ]; then
     API_KEY=$(grep "^WAHA_API_KEY=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
 fi
@@ -55,7 +55,7 @@ while true; do
                 echo ""
                 echo -e "${BLUE}📋 Next Steps:${NC}"
                 echo "1. Test sending a message:"
-                echo "   cd /Users/parthchandak/Documents/alpaca-trader"
+                echo "   cd /home/parth/Documents/alpaca-trader"
                 echo "   backend/.venv/bin/python scripts/54-test-whatsapp.py"
                 echo ""
                 echo "2. Your WhatsApp notifications should now work!"
